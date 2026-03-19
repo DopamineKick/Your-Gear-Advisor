@@ -1,0 +1,144 @@
+YOUR GEAR ADVISOR — INSTRUKCJA PIPELINE'ÓW
+Ostatnia aktualizacja: marzec 2026
+==========================================
+
+
+1. ARCHITEKTURA WSPÓLNA
+-----------------------
+
+Każdy sklep korzysta z tej samej architektury:
+
+  Import URL-i → gear_items_raw (processed = false)
+           ↓
+    npm run pipeline
+      Krok 1: embeddingi dla już enrichowanych (cleanup)
+      Krok 2: scraping unprocessed → gear_items_raw (processed = true)
+      Krok 3: AI enrichment → gear_items
+      Krok 4: embeddingi dla nowych gear_items
+
+WAŻNE: Każdy pipeline wznawia od miejsca przerwania.
+Można zatrzymać (Ctrl+C) i wznowić "npm run pipeline" w dowolnym momencie.
+
+  Etap          | Dlaczego wznawia?
+  --------------|--------------------------------------------------
+  Scraping      | Czyta tylko rekordy z processed = false
+  AI Enrichment | Czyta gear_items_raw WHERE id NOT IN gear_items
+  Embeddingi    | Czyta gear_items WHERE embedding IS NULL
+
+
+==========================================
+2. THOMANN
+==========================================
+
+Źródło: lokalny plik thomann-filter/guitar_products.csv
+
+Import URL-i (jednorazowy, bezpiecznie powtarzalny):
+  npm run import-csv
+
+Używa upsert + ignoreDuplicates — duplikaty pomijane automatycznie.
+
+Dodanie nowych produktów w przyszłości:
+  1. Podmień lub rozszerz plik thomann-filter/guitar_products.csv
+  2. npm run import-csv
+  3. npm run pipeline
+
+
+==========================================
+3. GEAR4MUSIC
+==========================================
+
+-- Metoda A: z pliku CSV (użyta przy obecnym pipeline) --
+
+  Plik: g4m_products_wybrane.csv (~6 000 URL-i)
+
+  npm run import-g4m-csv           (domyślnie 300 URL-i na raz)
+  npm run import-g4m-csv 1000      (lub podana liczba)
+
+  Sprawdza co już jest w bazie — bezpieczny do wielokrotnego uruchamiania.
+
+-- Metoda B: ze sitemapę G4M (aktualizacje, nowe produkty) --
+
+  npm run import-g4m               (domyślnie 20 nowych URL-i)
+  npm run import-g4m 500           (lub podana liczba)
+
+  Pobiera sitemapę przez Playwright, wstawia tylko URL-e których nie ma w bazie.
+
+Po każdym imporcie:
+  npm run pipeline
+
+
+==========================================
+4. RIFF.NET.PL
+==========================================
+
+! UWAGA: Riff.net.pl ma rate-limiting i Cloudflare Turnstile.
+  Importuj małymi partiami z przerwami między sesjami.
+
+-- Metoda A: strony kategorii (8 kategorii) --
+
+  npm run import-riffnet           (wszystkie strony kategorii)
+  npm run import-riffnet 2         (max 2 strony na kategorię — bezpieczniej)
+
+  Kategorie: gitary elektryczne, akustyczne, klasyczne, basowe,
+             wzmacniacze x3, efekty.
+
+  Znany bug: AJAX paginacja zwraca duplikaty od strony 2+.
+  Rate-limit aktywuje się po ~3 stronach per sesja.
+
+-- Metoda B: sitemap XML (z rotacją proxy) --
+
+  npx ts-node scripts/importRiffNetSitemap.ts 50   (50 produktów)
+
+  Używa rotacji 10 proxy datacenter (Webshare).
+  Cloudflare Turnstile blokuje datacenter IP na stronach produktów —
+  sitemap pobiera się bez problemu, scraping pełnych stron może być blokowany.
+
+Praktyczna strategia:
+  - Małe partie (import-riffnet 1 lub 2) co kilka godzin
+  - ~40–80 produktów dziennie przy ostrożnym podejściu
+
+Po każdym imporcie:
+  npm run pipeline
+
+
+==========================================
+5. PEŁNY PIPELINE — KOMENDA GŁÓWNA
+==========================================
+
+  npm run pipeline
+
+Uruchamia wszystkie 4 kroki sekwencyjnie.
+Można zatrzymać i wznowić w dowolnym momencie.
+
+Pozostałe przydatne komendy:
+
+  npm run scrape                     Sam scraping (krok 2) bez reszty pipeline'u
+  npm run embeddings                 Tylko generowanie embeddingów
+  npm run re-enrich                  Re-enrichment wszystkich produktów
+                                     (np. po zmianie promptu AI)
+  npm run update-g4m-prices [limit]  Aktualizacja cen G4M bez re-enrichmentu
+
+
+==========================================
+6. SCHEMAT — DODAWANIE NOWYCH PRODUKTÓW
+==========================================
+
+  Sklep        | Kiedy dorzucać              | Komenda importu              | Potem
+  -------------|----------------------------|------------------------------|-------------------
+  Thomann      | Nowy plik CSV              | npm run import-csv           | npm run pipeline
+  Gear4Music   | Co jakiś czas (nowe prod.) | npm run import-g4m [N]       | npm run pipeline
+  Riff.net.pl  | Małe partie, rzadziej      | npm run import-riffnet 1     | npm run pipeline
+
+
+==========================================
+7. KOSZTY AI ENRICHMENT (orientacyjnie)
+==========================================
+
+Model: GPT-4o-mini
+Ceny: input $0,15/1M tokenów, output $0,60/1M tokenów (marzec 2026)
+
+  Produkty  | Koszt szacunkowy
+  ----------|-----------------
+  1 000     | ~$0,35
+  5 000     | ~$1,75
+  10 000    | ~$3,50

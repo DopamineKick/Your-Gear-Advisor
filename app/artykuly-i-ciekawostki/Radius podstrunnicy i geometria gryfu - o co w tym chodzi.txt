@@ -1,0 +1,26 @@
+<Title>
+Radius podstrunnicy i geometria gryfu – o co w tym chodzi?
+
+<Treść>
+Większość gitarzystów przy zakupie instrumentu kieruje się wyglądem, marką lub brzmieniem przetworników. Jednak to, czy gitara „leży w dłoni”, zależy od parametrów, których na pierwszy rzut oka nie widać: geometrii gryfu oraz radiusa. Jeśli kiedykolwiek czułeś, że na jednej gitarze prościej gra się akordy, a na drugiej solówki, to prawdopodobnie zasługa tych dwóch czynników.
+
+Czym jest radius podstrunnicy?
+Mówiąc najprościej: radius to stopień zakrzywienia powierzchni podstrunnicy. Choć wydaje się ona płaska, w rzeczywistości większość gryfów stanowi wycinek łuku okręgu.
+Wartość tę podaje się w calach. Im mniejsza liczba (np. 7,25”), tym podstrunnica jest bardziej wypukła. Im większa liczba (np. 16”), tym podstrunnica jest bardziej płaska.
+
+Jak radius wpływa na Twoją grę?
+Mały radius (7,25” – 9,5”): Charakterystyczny dla gitar typu Vintage (np. stare Telecastery). Jest niezwykle wygodny przy chwytaniu akordów barowych, ponieważ naturalnie dopasowuje się do krzywizny zgiętego palca wskazującego. Wadą jest ryzyko „gaśnięcia” dźwięku podczas podciągania strun (bends).
+Duży radius (12” – 16”): Standard w gitarach nowoczesnych i wyścigowych (np. Ibanez). Płaska powierzchnia pozwala na bardzo niską akcję strun i ekstremalne podciągnięcia bez obawy o brzęczenie o progi.
+
+Co to jest Radius Zmienny (Compound Radius)?
+To rozwiązanie hybrydowe. Przy siodełku podstrunnica jest bardziej okrągła (ułatwia akordy), a im bliżej korpusu, tym bardziej się wypłaszcza (ułatwia solówki). To „święty Graal” ergonomii dla wszechstronnych gitarzystów.
+Geometria gryfu: C, V czy U?
+Profil gryfu (backshape) to kształt jego tylnej części, o którą opierasz kciuk. To kwestia czysto subiektywna:
+Profil C: Najpopularniejszy, uniwersalny kształt. Pasuje do większości dłoni i stylów gry.
+Profil V: Często spotykany w modelach retro. Świetny dla osób, które trzymają kciuk wystawiony ponad gryf.
+Profil U („Baseball Bat”): Gruby, masywny gryf. Uwielbiany przez fanów dużych instrumentów, daje poczucie stabilności i „pewnego chwytu”.
+Modern D/Wizard: Bardzo cienkie, wręcz płaskie profile stworzone do szybkiej gry technicznej (shreddingu).
+
+Podsumowanie: Co wybrać?
+Jeśli jesteś początkującym lub grasz głównie rytmikę, szukaj radiusa w okolicach 9,5” i profilu C. Jeśli Twoim celem są szybkie solówki i techniczne popisy, celuj w radius 12” lub wyższy oraz cieńsze profile typu Modern D.
+Pamiętaj: nie ma jednej „najlepszej” geometrii. Najlepszy gryf to taki, o którym zapominasz w trakcie grania.

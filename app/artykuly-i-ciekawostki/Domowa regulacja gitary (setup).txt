@@ -1,0 +1,33 @@
+<title>
+Domowa regulacja gitary (setup) – co możesz zrobić sam, a z czym iść do lutnika?
+
+<treść>
+Gitara to instrument wykonany z drewna, które nieustannie pracuje pod wpływem temperatury i wilgoci. Nawet najdroższy model po kilku miesiącach może zacząć „brzęczeć” lub stać się twardy w graniu. Dobra wiadomość? Większość podstawowych ustawień, czyli tzw. setupu, możesz wykonać samodzielnie przy pomocy kilku kluczy imbusowych.
+
+Kiedy jednak odłożyć śrubokręt i udać się do profesjonalisty? Oto kompletny przewodnik.
+Co możesz (i powinieneś) robić sam?
+Samodzielna regulacja to nie tylko oszczędność pieniędzy, ale przede wszystkim sposób na dopasowanie instrumentu pod własną rękę.
+1. Regulacja krzywizny gryfu (Pręt napinający)
+Wewnątrz gryfu znajduje się metalowy pręt (truss rod), który równoważy naciąg strun. Jeśli gryf wygiął się w „łódkę” (struny są za wysoko na środku) lub wygiął się w drugą stronę (struny obijają się o progi), wystarczy lekki obrót kluczem imbusowym.
+Zasada: Robimy małe kroki (max. 1/4 obrotu) i dajemy drewnu czas na „odpowiedź”.
+2. Ustawienie akcji strun
+Akcja strun to ich wysokość nad progami (mierzona zazwyczaj na 12. progu). W większości mostków (Tune-O-Matic, Stratocaster) regulacja polega na podniesieniu lub obniżeniu całego mostka lub poszczególnych siodełek.
+Cel: Znalezienie balansu między wygodą (niska akcja) a czystością dźwięku (brak brzęczenia).
+3. Ustawienie menzury (Intonacja)
+Czy Twoja gitara stroi na pustych strunach, ale fałszuje po zagraniu akordu na 12. progu? To problem z menzurą, czyli czynną długością struny. Reguluje się ją, przesuwając siodełka w mostku do przodu lub do tyłu.
+Narzędzie: Dobry tuner elektroniczny i śrubokręt. To bezpieczna i prosta operacja.
+
+Kiedy czas na wizytę u lutnika?
+Istnieją zabiegi, które wymagają specjalistycznych narzędzi, ogromnego doświadczenia i są operacjami nieodwracalnymi.
+1. Szlifowanie, koronowanie i polerowanie progów
+Z czasem pod strunami na progach pojawiają się wgłębienia. Powoduje to brzęczenie i „gaśnięcie” dźwięku. Szlifowanie progów (fret leveling) polega na wyrównaniu ich wysokości specjalnym pilnikiem.
+Dlaczego lutnik? Jeden fałszywy ruch i progi będą zbyt niskie, co zmusi Cię do ich całkowitej wymiany (refretting), co jest bardzo kosztowne.
+2. Korekta siodełka (Nut work)
+Jeśli struny „strzelają” przy strojeniu lub są za wysoko na pierwszych progach, problem leży w siodełku przy główce.
+Dlaczego lutnik? Pogłębianie rowków w siodełku wymaga precyzyjnych pilników o konkretnych grubościach. Jeśli spiłujesz o ułamek milimetra za dużo, struna będzie leżeć na pierwszym progu i siodełko będzie do wyrzucenia.
+3. Elektronika i poważne uszkodzenia
+Trzeszczący potencjometr możesz przeczyścić sprayem typu „Contact”, ale jeśli marzy Ci się wymiana przetworników, a nigdy nie trzymałeś lutownicy w ręku – lepiej odpuść. To samo dotyczy pęknięć drewna czy odklejonych mostków w akustykach.
+
+Podsumowanie
+Domowy setup (gryf, akcja, menzura) to podstawa higieny każdego gitarzysty. Nie bój się go – instrukcje do większości modeli znajdziesz na stronach producentów. Jeśli jednak problemem jest „fizyka” progów lub twarde elementy konstrukcyjne, oddaj instrument w ręce fachowca.
+Twoja gitara to inwestycja – dbaj o nią mądrze!

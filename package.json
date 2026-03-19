@@ -1,0 +1,42 @@
+{
+  "name": "your-gear-advisor",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 4100",
+    "build": "next build",
+    "start": "next start -p 4100",
+    "lint": "next lint",
+    "embeddings": "ts-node scripts/generateEmbeddings.ts",
+    "import-csv": "ts-node scripts/importThomannCSV.ts",
+    "import-g4m": "ts-node scripts/importGear4MusicSitemap.ts",
+    "update-g4m-prices": "ts-node scripts/updateG4MPrices.ts",
+    "import-riffnet": "ts-node scripts/importRiffNetProducts.ts",
+    "import-riffnet-sitemap": "ts-node scripts/importRiffNetSitemap.ts",
+    "import-g4m-csv": "ts-node scripts/importG4MFromCSV.ts",
+    "re-enrich": "ts-node --esm scripts/reEnrichAll.ts",
+    "scrape": "ts-node -P tsconfig.scripts.json scripts/runScrapeStandalone.ts",
+    "pipeline": "ts-node -P tsconfig.scripts.json scripts/runPipeline.ts"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.90.1",
+    "dotenv": "^17.2.3",
+    "next": "14.1.0",
+    "nodemailer": "^8.0.2",
+    "openai": "^6.15.0",
+    "playwright": "^1.57.0",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "undici": "^5.29.0"
+  },
+  "devDependencies": {
+    "@types/node": "25.0.3",
+    "@types/nodemailer": "^7.0.11",
+    "@types/react": "19.2.7",
+    "autoprefixer": "^10.4.16",
+    "postcss": "^8.4.35",
+    "tailwindcss": "^3.4.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
+}

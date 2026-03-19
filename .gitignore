@@ -1,0 +1,21 @@
+node_modules
+.next
+.env
+
+# Environment variables
+.env.local
+.env.*.local
+
+# Misc
+.DS_Store
+
+# Local reference assets (not part of the app)
+_assets/
+_sitemaps/
+
+# Data files
+*.csv
+
+# Claude Code
+.claude/
+CLAUDE.md
