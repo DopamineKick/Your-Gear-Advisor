@@ -15,6 +15,10 @@ _sitemaps/
 
 # Data files
 *.csv
+*.txt
+
+# Local pipeline data
+thomann-filter/
 
 # Claude Code
 .claude/

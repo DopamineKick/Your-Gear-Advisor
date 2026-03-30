@@ -93,6 +93,27 @@ export default function PowiadomieniaPage() {
     }
   }
 
+  async function handleDismiss(e: React.MouseEvent, notif: Notification) {
+    e.stopPropagation();
+    if (!token) return;
+
+    if (notif.is_broadcast) {
+      // For broadcasts: mark as read (no hard delete — shared records)
+      await fetch(`/api/notifications/${notif.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ is_broadcast: true }),
+      });
+    } else {
+      await fetch(`/api/notifications/${notif.id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    }
+
+    setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
+  }
+
   return (
     <div className="min-h-screen bg-[#0a0a0a]">
       <AppSidebar />
@@ -121,10 +142,13 @@ export default function PowiadomieniaPage() {
         ) : (
           <div className="flex flex-col gap-2">
             {notifications.map((notif) => (
-              <button
+              <div
                 key={`${notif.is_broadcast ? "bc" : "n"}-${notif.id}`}
                 onClick={() => handleClick(notif)}
-                className="text-left rounded-xl px-4 py-3.5 transition-all duration-200 hover:scale-[1.005] flex items-start gap-3"
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => e.key === "Enter" && handleClick(notif)}
+                className="relative text-left rounded-xl px-4 py-3.5 transition-all duration-200 hover:scale-[1.005] flex items-start gap-3 cursor-pointer group"
                 style={{
                   background: notif.is_read ? "rgba(12,12,12,0.6)" : "rgba(184,92,56,0.08)",
                   border: notif.is_read
@@ -163,7 +187,32 @@ export default function PowiadomieniaPage() {
                     )}
                   </div>
                 </div>
-              </button>
+                {/* Dismiss button */}
+                <button
+                  onClick={(e) => handleDismiss(e, notif)}
+                  title="Usuń powiadomienie"
+                  style={{
+                    position: "absolute",
+                    top: "8px",
+                    right: "8px",
+                    width: "20px",
+                    height: "20px",
+                    borderRadius: "5px",
+                    background: "rgba(255,255,255,0.08)",
+                    border: "1px solid rgba(255,255,255,0.15)",
+                    color: "rgba(255,255,255,0.6)",
+                    fontSize: "14px",
+                    lineHeight: 1,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                    flexShrink: 0,
+                  }}
+                >
+                  ×
+                </button>
+              </div>
             ))}
           </div>
         )}

@@ -133,6 +133,21 @@ function BotCard({ bot, token, onRefresh, posts }: {
             style={{ background: "rgba(255,255,255,0.05)" }}>
             {expanded ? "Zwiń" : "Edytuj"}
           </button>
+          <button
+            onClick={async () => {
+              if (!confirm(`Czy na pewno chcesz usunąć bota "${bot.nick}"? Ta operacja jest nieodwracalna.`)) return;
+              const res = await fetch(`/api/admin/bots/${bot.id}`, {
+                method: "DELETE",
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              if (res.ok) onRefresh();
+            }}
+            className="text-xs text-red-500/50 hover:text-red-400 px-3 py-1.5 rounded-lg transition-colors"
+            style={{ background: "rgba(255,255,255,0.05)" }}
+            title="Usuń bota"
+          >
+            Usuń
+          </button>
         </div>
       </div>
 

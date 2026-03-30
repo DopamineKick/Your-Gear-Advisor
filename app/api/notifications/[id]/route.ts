@@ -33,3 +33,25 @@ export async function PATCH(
 
   return NextResponse.json({ ok: true });
 }
+
+// DELETE /api/notifications/[id] — dismiss (remove) a notification
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  const userId = await requireAuth(req.headers.get("Authorization"));
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const supabase = createClient(
+    process.env.SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+
+  await supabase
+    .from("notifications")
+    .delete()
+    .eq("id", params.id)
+    .eq("user_id", userId);
+
+  return NextResponse.json({ ok: true });
+}

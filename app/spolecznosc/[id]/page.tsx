@@ -13,8 +13,11 @@ interface Post {
   title: string;
   content: string;
   created_at: string;
+  tags: string[];
   author_nick: string;
   author_avatar?: string | null;
+  like_count: number;
+  user_liked: boolean;
 }
 
 interface Comment {
@@ -24,6 +27,8 @@ interface Comment {
   parent_id: string | null;
   author_nick: string;
   author_avatar?: string | null;
+  like_count: number;
+  user_liked: boolean;
 }
 
 function timeAgo(dateStr: string) {
@@ -68,7 +73,11 @@ export default function PostPage() {
   const [myNick, setMyNick] = useState("Ty");
   const [myAvatar, setMyAvatar] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [bots, setBots] = useState<{ id: string; nick: string; avatar_url: string | null }[]>([]);
+  const [selectedBotId, setSelectedBotId] = useState<string>("");
   const [replyTo, setReplyTo] = useState<{ id: string; nick: string } | null>(null);
+  const [editingDate, setEditingDate] = useState<{ type: "post" | "comment"; id: string } | null>(null);
+  const [dateValue, setDateValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const commentsEndRef = useRef<HTMLDivElement>(null);
 
@@ -83,6 +92,15 @@ export default function PostPage() {
         setMyNick(data.profile.nick ?? "Ty");
         setMyAvatar(data.profile.avatar_url ?? null);
         setIsAdmin(data.profile.is_admin === true);
+        // Fetch bots for admin bot selector
+        if (data.profile.is_admin) {
+          fetch("/api/admin/bots", {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          })
+            .then((r) => r.json())
+            .then((d) => setBots(d.bots ?? []))
+            .catch(() => {});
+        }
       }
     });
     fetchPost();
@@ -90,12 +108,53 @@ export default function PostPage() {
 
   async function fetchPost() {
     setLoading(true);
-    const res = await fetch(`/api/community/posts/${postId}`);
+    const { data: { session } } = await supabase.auth.getSession();
+    const headers: Record<string, string> = {};
+    if (session) headers["Authorization"] = `Bearer ${session.access_token}`;
+    const res = await fetch(`/api/community/posts/${postId}`, { headers });
     if (!res.ok) { router.replace("/spolecznosc"); return; }
     const data = await res.json();
     setPost(data.post);
     setComments(data.comments ?? []);
     setLoading(false);
+  }
+
+  async function handleLike(targetType: "post" | "comment", targetId: string) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+
+    const res = await fetch("/api/community/likes", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ target_type: targetType, target_id: targetId }),
+    });
+
+    if (res.ok) {
+      if (targetType === "post" && post) {
+        setPost({ ...post, like_count: post.like_count + 1, user_liked: true });
+      } else {
+        setComments((prev) =>
+          prev.map((c) =>
+            c.id === targetId ? { ...c, like_count: c.like_count + 1, user_liked: true } : c
+          )
+        );
+      }
+    }
+  }
+
+  async function handleDeleteComment(commentId: string) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    const res = await fetch(`/api/community/comments/${commentId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+    if (res.ok) {
+      setComments((prev) => prev.filter((c) => c.id !== commentId));
+    }
   }
 
   function handleReply(c: Comment) {
@@ -106,6 +165,48 @@ export default function PostPage() {
       const len = textareaRef.current?.value.length ?? 0;
       textareaRef.current?.setSelectionRange(len, len);
     }, 50);
+  }
+
+  function openDateEditor(type: "post" | "comment", id: string, currentDate: string) {
+    // Format to datetime-local: "YYYY-MM-DDThh:mm"
+    const d = new Date(currentDate);
+    const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 16);
+    setDateValue(local);
+    setEditingDate({ type, id });
+  }
+
+  async function handleSaveDate() {
+    if (!editingDate || !dateValue) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+
+    const endpoint =
+      editingDate.type === "post"
+        ? `/api/community/posts/${editingDate.id}`
+        : `/api/community/comments/${editingDate.id}`;
+
+    const res = await fetch(endpoint, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ created_at: new Date(dateValue).toISOString() }),
+    });
+
+    if (res.ok) {
+      const newDate = new Date(dateValue).toISOString();
+      if (editingDate.type === "post" && post) {
+        setPost({ ...post, created_at: newDate });
+      } else {
+        setComments((prev) =>
+          prev.map((c) => (c.id === editingDate.id ? { ...c, created_at: newDate } : c))
+        );
+      }
+      setEditingDate(null);
+    }
   }
 
   async function handleComment(e: React.FormEvent) {
@@ -127,6 +228,7 @@ export default function PostPage() {
         post_id: postId,
         content: comment,
         parent_id: replyTo?.id ?? null,
+        ...(selectedBotId ? { as_bot_id: selectedBotId } : {}),
       }),
     });
     const data = await res.json();
@@ -140,13 +242,16 @@ export default function PostPage() {
     if (data.flagged) {
       setMsg("Komentarz zostanie opublikowany po weryfikacji.");
     } else {
+      const bot = selectedBotId ? bots.find((b) => b.id === selectedBotId) : null;
       setComments((prev) => [...prev, {
         id: data.comment.id,
         content: data.comment.content,
         created_at: data.comment.created_at,
         parent_id: replyTo?.id ?? null,
-        author_nick: myNick,
-        author_avatar: myAvatar,
+        author_nick: bot ? bot.nick : myNick,
+        author_avatar: bot ? bot.avatar_url : myAvatar,
+        like_count: 0,
+        user_liked: false,
       }]);
       setTimeout(() => commentsEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
     }
@@ -180,16 +285,69 @@ export default function PostPage() {
               <span className="text-[#B85C38]/60">{c.author_nick}</span>
             </span>
             <span>{timeAgo(c.created_at)}</span>
-            <button
-              onClick={() => handleReply(c)}
-              className="ml-auto text-xs text-white/30 hover:text-[#B85C38] transition-colors flex items-center gap-1"
-              style={{ background: "transparent" }}
+
+            {/* Like button for comment */}
+            <span
+              className="flex items-center gap-1 transition-colors"
+              onClick={() => { if (!c.user_liked) handleLike("comment", c.id); }}
+              style={{ cursor: c.user_liked ? "default" : "pointer" }}
             >
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/>
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill={c.user_liked ? "#B85C38" : "none"}
+                stroke={c.user_liked ? "#B85C38" : "currentColor"}
+                strokeWidth="2"
+                className={c.user_liked ? "" : "hover:stroke-[#B85C38] transition-colors"}
+              >
+                <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>
               </svg>
-              Odpowiedz
-            </button>
+              {c.like_count > 0 && (
+                <span className={`text-xs ${c.user_liked ? "text-[#B85C38]" : "text-white/40"}`}>
+                  {c.like_count}
+                </span>
+              )}
+            </span>
+
+            <div className="ml-auto flex items-center gap-2">
+              <button
+                onClick={() => handleReply(c)}
+                className="text-xs text-white/30 hover:text-[#B85C38] transition-colors flex items-center gap-1"
+                style={{ background: "transparent" }}
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/>
+                </svg>
+                Odpowiedz
+              </button>
+              {isAdmin && (
+                <>
+                  <button
+                    onClick={() => openDateEditor("comment", c.id, c.created_at)}
+                    className="text-xs text-white/20 hover:text-[#B85C38] transition-colors flex items-center gap-1"
+                    style={{ background: "transparent" }}
+                    title="Edytuj datę (admin)"
+                  >
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+                    </svg>
+                    Data
+                  </button>
+                  <button
+                    onClick={() => handleDeleteComment(c.id)}
+                    className="text-xs text-red-500/50 hover:text-red-400 transition-colors flex items-center gap-1"
+                    style={{ background: "transparent" }}
+                    title="Usuń komentarz (admin)"
+                  >
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
+                    </svg>
+                    Usuń
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
         {replies.map((r) => renderComment(r, children, depth + 1))}
@@ -240,6 +398,25 @@ export default function PostPage() {
               style={{ fontFamily: "var(--font-inter), system-ui, sans-serif" }}>
               {post.content}
             </p>
+            {/* Tags */}
+            {post.tags && post.tags.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-4">
+                {post.tags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="px-2 py-0.5 rounded text-xs"
+                    style={{
+                      background: "rgba(184,92,56,0.12)",
+                      color: "rgba(208,122,80,0.7)",
+                      border: "1px solid rgba(184,92,56,0.2)",
+                    }}
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
+
             <div className="flex items-center gap-3 text-xs text-white/30 border-t border-white/8 pt-4">
               <span className="flex items-center gap-1.5">
                 <span className="rounded-md overflow-hidden flex-shrink-0" style={{ width: 20, height: 20 }}>
@@ -248,6 +425,44 @@ export default function PostPage() {
                 <span className="text-[#B85C38]/70">{post.author_nick}</span>
               </span>
               <span>{timeAgo(post.created_at)}</span>
+
+              {/* Like button for post */}
+              <span
+                className="flex items-center gap-1 transition-colors"
+                onClick={() => { if (!post.user_liked) handleLike("post", post.id); }}
+                style={{ cursor: post.user_liked ? "default" : "pointer" }}
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill={post.user_liked ? "#B85C38" : "none"}
+                  stroke={post.user_liked ? "#B85C38" : "currentColor"}
+                  strokeWidth="2"
+                  className={post.user_liked ? "" : "hover:stroke-[#B85C38] transition-colors"}
+                >
+                  <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>
+                </svg>
+                {post.like_count > 0 && (
+                  <span className={`text-xs ${post.user_liked ? "text-[#B85C38]" : "text-white/40"}`}>
+                    {post.like_count}
+                  </span>
+                )}
+              </span>
+
+              {isAdmin && (
+                <button
+                  onClick={() => openDateEditor("post", post.id, post.created_at)}
+                  className="text-xs text-white/20 hover:text-[#B85C38] transition-colors flex items-center gap-1 ml-auto"
+                  style={{ background: "transparent" }}
+                  title="Edytuj datę (admin)"
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+                  </svg>
+                  Data
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -267,6 +482,40 @@ export default function PostPage() {
             </div>
           )}
         </div>
+
+        {/* Modal edycji daty — admin only */}
+        {editingDate && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}>
+            <div className="rounded-2xl p-6 w-full max-w-sm mx-4" style={{ background: "#111", border: "2px solid rgba(184,92,56,0.55)" }}>
+              <h3 className="text-white font-semibold text-sm mb-4" style={{ fontFamily: "var(--font-instrument), Georgia, serif" }}>
+                Edytuj datę {editingDate.type === "post" ? "posta" : "komentarza"}
+              </h3>
+              <input
+                type="datetime-local"
+                value={dateValue}
+                onChange={(e) => setDateValue(e.target.value)}
+                className="w-full text-white text-sm rounded-xl px-4 py-3 outline-none border border-white/10 focus:border-[#B85C38]/50 transition-colors mb-4"
+                style={{ background: "rgba(0,0,0,0.5)", colorScheme: "dark" }}
+              />
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={() => setEditingDate(null)}
+                  className="px-4 py-2 rounded-xl text-sm text-white/50 hover:text-white transition-colors"
+                  style={{ background: "transparent" }}
+                >
+                  Anuluj
+                </button>
+                <button
+                  onClick={handleSaveDate}
+                  className="px-5 py-2 rounded-xl text-sm font-semibold text-white transition-all hover:scale-[1.02]"
+                  style={{ background: "linear-gradient(135deg, #B85C38, #D07A50)" }}
+                >
+                  Zapisz
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Form komentarza */}
         <div className="rounded-2xl p-5" style={{ background: "rgba(12,12,12,0.75)", border: "2px solid rgba(184,92,56,0.35)" }}>
@@ -289,6 +538,23 @@ export default function PostPage() {
             </div>
           )}
           <form onSubmit={handleComment} className="flex flex-col gap-3">
+            {/* Admin: bot selector */}
+            {isAdmin && bots.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-white/30">Odpowiedz jako:</span>
+                <select
+                  value={selectedBotId}
+                  onChange={(e) => setSelectedBotId(e.target.value)}
+                  className="text-xs text-white rounded-lg px-3 py-1.5 outline-none border border-white/10 focus:border-[#B85C38]/50 transition-colors"
+                  style={{ background: "rgba(0,0,0,0.5)", colorScheme: "dark" }}
+                >
+                  <option value="">Moje konto ({myNick})</option>
+                  {bots.map((b) => (
+                    <option key={b.id} value={b.id}>🤖 {b.nick}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <textarea
               ref={textareaRef}
               placeholder="Napisz komentarz... (@nick aby oznaczyć użytkownika)"

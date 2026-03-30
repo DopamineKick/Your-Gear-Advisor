@@ -23,7 +23,8 @@ export async function notifyMentions(
   authorId: string,
   authorNick: string,
   postId: string,
-  isAdmin: boolean
+  isAdmin: boolean,
+  skipUserIds?: Set<string>
 ): Promise<void> {
   const nicks = extractMentions(text);
   if (!nicks.length) return;
@@ -40,6 +41,7 @@ export async function notifyMentions(
   const toInsert: object[] = [];
 
   for (const user of users) {
+    if (skipUserIds?.has(user.id)) continue;
     if (!isAdmin) {
       const { count } = await supabase
         .from("notifications")

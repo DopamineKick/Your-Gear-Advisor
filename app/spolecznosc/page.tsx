@@ -8,14 +8,39 @@ import { useSupabase } from "@/components/SupabaseProvider";
 
 const DEFAULT_AVATAR = "/profile-avatars/avatar_black_strat.png";
 
+const ALL_TAGS = [
+  "gitara elektryczna",
+  "gitara akustyczna",
+  "gitara klasyczna",
+  "gitara basowa",
+  "efekty gitarowe",
+  "multiefekty",
+  "wtyczki VST",
+  "home recording",
+  "artyści",
+  "albumy muzyczne",
+  "koncerty",
+  "lutnictwo i serwis gitarowy",
+  "wzmacniacze gitarowe",
+  "wzmacniacze basowe",
+  "nagłośnienie",
+  "części gitarowe",
+  "brzmienie gitarowe",
+  "oferty",
+  "treści na youtube",
+];
+
 interface Post {
   id: string;
   title: string;
   content: string;
   created_at: string;
+  tags: string[];
   author_nick: string;
   author_avatar?: string | null;
   comment_count: number;
+  like_count: number;
+  user_liked: boolean;
 }
 
 function timeAgo(dateStr: string) {
@@ -37,11 +62,21 @@ export default function SpolecznoscPage() {
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [sending, setSending] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
   const [error, setError] = useState("");
   const [urlError, setUrlError] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
+  const [editingDate, setEditingDate] = useState<{ id: string; created_at: string } | null>(null);
+  const [dateValue, setDateValue] = useState("");
+
+  // Search & filter state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchComments, setSearchComments] = useState(false);
+  const [filterTags, setFilterTags] = useState<string[]>([]);
+  const [showAllTags, setShowAllTags] = useState(false);
+  const [token, setToken] = useState<string | null>(null);
 
   function checkUrl(value: string) {
     if (!isAdmin && /https?:\/\/[^\s]+|www\.[^\s]+/i.test(value)) {
@@ -54,6 +89,7 @@ export default function SpolecznoscPage() {
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) { router.replace("/auth/login"); return; }
+      setToken(session.access_token);
       const res = await fetch("/api/auth/create-profile", {
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
@@ -63,12 +99,72 @@ export default function SpolecznoscPage() {
     fetchPosts();
   }, []);
 
-  async function fetchPosts() {
+  async function fetchPosts(tags?: string[], search?: string, inclComments?: boolean) {
     setLoading(true);
-    const res = await fetch("/api/community/posts");
+    const params = new URLSearchParams();
+    const t = tags ?? filterTags;
+    const s = search ?? searchQuery;
+    const sc = inclComments ?? searchComments;
+    if (t.length > 0) params.set("tags", t.join(","));
+    if (s.trim()) params.set("search", s.trim());
+    if (sc) params.set("search_comments", "true");
+
+    const { data: { session } } = await supabase.auth.getSession();
+    const headers: Record<string, string> = {};
+    if (session) headers["Authorization"] = `Bearer ${session.access_token}`;
+
+    const res = await fetch(`/api/community/posts?${params.toString()}`, { headers });
     const data = await res.json();
     setPosts(data.posts ?? []);
     setLoading(false);
+  }
+
+  function handleTagFilter(tag: string) {
+    const newTags = filterTags.includes(tag)
+      ? filterTags.filter((t) => t !== tag)
+      : [...filterTags, tag];
+    setFilterTags(newTags);
+    fetchPosts(newTags);
+  }
+
+  function handleSearch(e: React.FormEvent) {
+    e.preventDefault();
+    fetchPosts();
+  }
+
+  function clearFilters() {
+    setFilterTags([]);
+    setSearchQuery("");
+    setSearchComments(false);
+    fetchPosts([], "");
+  }
+
+  function toggleFormTag(tag: string) {
+    setSelectedTags((prev) =>
+      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
+    );
+  }
+
+  async function handleLike(postId: string) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+
+    const res = await fetch("/api/community/likes", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ target_type: "post", target_id: postId }),
+    });
+
+    if (res.ok) {
+      setPosts((prev) =>
+        prev.map((p) =>
+          p.id === postId ? { ...p, like_count: p.like_count + 1, user_liked: true } : p
+        )
+      );
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -86,7 +182,7 @@ export default function SpolecznoscPage() {
         "Content-Type": "application/json",
         Authorization: `Bearer ${session.access_token}`,
       },
-      body: JSON.stringify({ title, content }),
+      body: JSON.stringify({ title, content, tags: selectedTags }),
     });
     const data = await res.json();
     setSending(false);
@@ -98,11 +194,47 @@ export default function SpolecznoscPage() {
 
     setTitle("");
     setContent("");
+    setSelectedTags([]);
     setShowForm(false);
     setSuccessMsg(data.message ?? "Post wysłany");
     if (data.post?.status === "approved") fetchPosts();
     setTimeout(() => setSuccessMsg(""), 5000);
   }
+
+  function openDateEditor(postId: string, currentDate: string) {
+    const d = new Date(currentDate);
+    const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 16);
+    setDateValue(local);
+    setEditingDate({ id: postId, created_at: currentDate });
+  }
+
+  async function handleSaveDate() {
+    if (!editingDate || !dateValue) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+
+    const res = await fetch(`/api/community/posts/${editingDate.id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ created_at: new Date(dateValue).toISOString() }),
+    });
+
+    if (res.ok) {
+      const newDate = new Date(dateValue).toISOString();
+      setPosts((prev) =>
+        prev.map((p) => (p.id === editingDate.id ? { ...p, created_at: newDate } : p))
+      );
+      setEditingDate(null);
+    }
+  }
+
+  const hasActiveFilters = filterTags.length > 0 || searchQuery.trim() !== "";
+  const visibleTags = showAllTags ? ALL_TAGS : ALL_TAGS.slice(0, 8);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -113,7 +245,7 @@ export default function SpolecznoscPage() {
 
       <div className="relative z-10 md:ml-60 flex-1 px-6 py-8 max-w-3xl mx-auto w-full">
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center justify-between mb-6">
           <div>
             <h1
               className="text-white text-3xl font-bold"
@@ -132,6 +264,95 @@ export default function SpolecznoscPage() {
           >
             + Nowy post
           </button>
+        </div>
+
+        {/* Search bar */}
+        <div className="mb-4">
+          <form onSubmit={handleSearch} className="flex gap-2 items-center">
+            <div className="relative flex-1">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+              </svg>
+              <input
+                type="text"
+                placeholder="Szukaj postów..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full text-white text-sm rounded-xl pl-10 pr-4 py-2.5 outline-none border border-white/10 focus:border-[#B85C38]/50 transition-colors"
+                style={{ background: "rgba(0,0,0,0.5)", fontFamily: "var(--font-inter), system-ui, sans-serif" }}
+              />
+            </div>
+            <button
+              type="submit"
+              className="px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition-all hover:scale-[1.02]"
+              style={{ background: "linear-gradient(135deg, #B85C38, #D07A50)" }}
+            >
+              Szukaj
+            </button>
+          </form>
+          <div className="flex items-center gap-4 mt-2">
+            <label className="flex items-center gap-2 text-xs text-white/40 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={!searchComments}
+                onChange={() => {}}
+                className="accent-[#B85C38] w-3.5 h-3.5"
+                disabled
+              />
+              <span className="text-white/50">Szukaj wśród postów</span>
+            </label>
+            <label className="flex items-center gap-2 text-xs text-white/40 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={searchComments}
+                onChange={(e) => setSearchComments(e.target.checked)}
+                className="accent-[#B85C38] w-3.5 h-3.5"
+              />
+              <span>Szukaj wśród komentarzy</span>
+            </label>
+            {hasActiveFilters && (
+              <button
+                onClick={clearFilters}
+                className="text-xs text-[#B85C38]/70 hover:text-[#B85C38] transition-colors ml-auto"
+                style={{ background: "transparent" }}
+              >
+                Wyczyść filtry
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Tag filter */}
+        <div className="mb-6">
+          <div className="flex flex-wrap gap-2">
+            {visibleTags.map((tag) => (
+              <button
+                key={tag}
+                onClick={() => handleTagFilter(tag)}
+                className="px-3 py-1.5 rounded-lg text-xs transition-all"
+                style={{
+                  background: filterTags.includes(tag)
+                    ? "rgba(184,92,56,0.3)"
+                    : "rgba(255,255,255,0.05)",
+                  border: filterTags.includes(tag)
+                    ? "1px solid rgba(184,92,56,0.6)"
+                    : "1px solid rgba(255,255,255,0.1)",
+                  color: filterTags.includes(tag) ? "#D07A50" : "rgba(255,255,255,0.5)",
+                }}
+              >
+                {tag}
+              </button>
+            ))}
+            {ALL_TAGS.length > 8 && (
+              <button
+                onClick={() => setShowAllTags(!showAllTags)}
+                className="px-3 py-1.5 rounded-lg text-xs text-white/30 hover:text-white/50 transition-colors"
+                style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.08)" }}
+              >
+                {showAllTags ? "Mniej tagów" : `+${ALL_TAGS.length - 8} więcej`}
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Form nowego posta */}
@@ -164,6 +385,33 @@ export default function SpolecznoscPage() {
                 className="w-full text-white text-sm rounded-xl px-4 py-3 outline-none border border-white/10 focus:border-[#B85C38]/50 transition-colors resize-none"
                 style={{ background: "rgba(0,0,0,0.5)", fontFamily: "var(--font-inter), system-ui, sans-serif" }}
               />
+
+              {/* Tag selector */}
+              <div>
+                <p className="text-xs text-white/40 mb-2">Tagi (opcjonalnie):</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {ALL_TAGS.map((tag) => (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() => toggleFormTag(tag)}
+                      className="px-2.5 py-1 rounded-md text-xs transition-all"
+                      style={{
+                        background: selectedTags.includes(tag)
+                          ? "rgba(184,92,56,0.3)"
+                          : "rgba(255,255,255,0.05)",
+                        border: selectedTags.includes(tag)
+                          ? "1px solid rgba(184,92,56,0.6)"
+                          : "1px solid rgba(255,255,255,0.08)",
+                        color: selectedTags.includes(tag) ? "#D07A50" : "rgba(255,255,255,0.4)",
+                      }}
+                    >
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {urlError && (
                 <p className="text-red-400 text-xs">{urlError}</p>
               )}
@@ -209,8 +457,8 @@ export default function SpolecznoscPage() {
           </div>
         ) : posts.length === 0 ? (
           <div className="text-center py-16 text-white/30">
-            <p className="text-lg mb-2">Brak postów</p>
-            <p className="text-sm">Bądź pierwszy — napisz nowy post!</p>
+            <p className="text-lg mb-2">{hasActiveFilters ? "Brak wyników" : "Brak postów"}</p>
+            <p className="text-sm">{hasActiveFilters ? "Spróbuj zmienić kryteria wyszukiwania" : "Bądź pierwszy — napisz nowy post!"}</p>
           </div>
         ) : (
           <div className="flex flex-col gap-3">
@@ -232,10 +480,30 @@ export default function SpolecznoscPage() {
                 >
                   {post.title}
                 </h2>
-                <p className="text-white/50 text-sm leading-relaxed mb-3 line-clamp-2"
+                <p className="text-white/50 text-sm leading-relaxed mb-2 line-clamp-2"
                   style={{ fontFamily: "var(--font-inter), system-ui, sans-serif" }}>
                   {post.content}
                 </p>
+
+                {/* Tags on post card */}
+                {post.tags && post.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-3">
+                    {post.tags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="px-2 py-0.5 rounded text-xs"
+                        style={{
+                          background: "rgba(184,92,56,0.12)",
+                          color: "rgba(208,122,80,0.7)",
+                          border: "1px solid rgba(184,92,56,0.2)",
+                        }}
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
                 <div className="flex items-center gap-4 text-xs text-white/30">
                   <span className="flex items-center gap-1.5">
                     <span className="rounded-md overflow-hidden flex-shrink-0" style={{ width: 18, height: 18 }}>
@@ -244,15 +512,92 @@ export default function SpolecznoscPage() {
                     <span className="text-[#B85C38]/70">{post.author_nick}</span>
                   </span>
                   <span>{timeAgo(post.created_at)}</span>
-                  <span className="flex items-center gap-1">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+
+                  {/* Like button */}
+                  <span
+                    className="flex items-center gap-1 transition-colors"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!post.user_liked) handleLike(post.id);
+                    }}
+                    style={{ cursor: post.user_liked ? "default" : "pointer" }}
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill={post.user_liked ? "#B85C38" : "none"}
+                      stroke={post.user_liked ? "#B85C38" : "currentColor"}
+                      strokeWidth="2"
+                      className={post.user_liked ? "" : "hover:stroke-[#B85C38] transition-colors"}
+                    >
+                      <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>
+                    </svg>
+                    {post.like_count > 0 && (
+                      <span className={`text-xs ${post.user_liked ? "text-[#B85C38]" : "text-white/40"}`}>
+                        {post.like_count}
+                      </span>
+                    )}
+                  </span>
+
+                  {/* Comment count */}
+                  <span className="flex items-center gap-1.5 text-white/40 text-base font-medium">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
                     </svg>
                     {post.comment_count}
                   </span>
+
+                  {isAdmin && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); openDateEditor(post.id, post.created_at); }}
+                      className="text-xs text-white/20 hover:text-[#B85C38] transition-colors flex items-center gap-1 ml-auto"
+                      style={{ background: "transparent" }}
+                      title="Edytuj datę (admin)"
+                    >
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+                      </svg>
+                      Data
+                    </button>
+                  )}
                 </div>
               </button>
             ))}
+          </div>
+        )}
+
+        {/* Modal edycji daty — admin only */}
+        {editingDate && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}>
+            <div className="rounded-2xl p-6 w-full max-w-sm mx-4" style={{ background: "#111", border: "2px solid rgba(184,92,56,0.55)" }}>
+              <h3 className="text-white font-semibold text-sm mb-4" style={{ fontFamily: "var(--font-instrument), Georgia, serif" }}>
+                Edytuj datę posta
+              </h3>
+              <input
+                type="datetime-local"
+                value={dateValue}
+                onChange={(e) => setDateValue(e.target.value)}
+                className="w-full text-white text-sm rounded-xl px-4 py-3 outline-none border border-white/10 focus:border-[#B85C38]/50 transition-colors mb-4"
+                style={{ background: "rgba(0,0,0,0.5)", colorScheme: "dark" }}
+              />
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={() => setEditingDate(null)}
+                  className="px-4 py-2 rounded-xl text-sm text-white/50 hover:text-white transition-colors"
+                  style={{ background: "transparent" }}
+                >
+                  Anuluj
+                </button>
+                <button
+                  onClick={handleSaveDate}
+                  className="px-5 py-2 rounded-xl text-sm font-semibold text-white transition-all hover:scale-[1.02]"
+                  style={{ background: "linear-gradient(135deg, #B85C38, #D07A50)" }}
+                >
+                  Zapisz
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

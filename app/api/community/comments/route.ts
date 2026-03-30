@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
   const { data: { user } } = await anonClient.auth.getUser(token);
   if (!user) return NextResponse.json({ error: "Nieważny token" }, { status: 401 });
 
-  const { post_id, content, parent_id } = await request.json();
+  const { post_id, content, parent_id, as_bot_id } = await request.json();
   if (!post_id || !content?.trim()) {
     return NextResponse.json({ error: "Brak post_id lub treści" }, { status: 400 });
   }
@@ -31,6 +31,26 @@ export async function POST(request: NextRequest) {
     .single();
   if (!profile) {
     return NextResponse.json({ error: "Brak profilu – ustaw nick w Ustawieniach" }, { status: 403 });
+  }
+
+  // Admin może pisać jako bot
+  let effectiveAuthorId = user.id;
+  let effectiveNick = (profile as any).nick ?? "użytkownik";
+  let effectiveAvatar: string | null = null;
+
+  if (as_bot_id && (profile as any).is_admin) {
+    const { data: botProfile } = await supabase
+      .from("profiles")
+      .select("id, nick, avatar_url, is_bot")
+      .eq("id", as_bot_id)
+      .eq("is_bot", true)
+      .single();
+    if (!botProfile) {
+      return NextResponse.json({ error: "Bot nie znaleziony" }, { status: 404 });
+    }
+    effectiveAuthorId = botProfile.id;
+    effectiveNick = botProfile.nick;
+    effectiveAvatar = botProfile.avatar_url;
   }
 
   if (!(profile as any).is_admin && /https?:\/\/[^\s]+|www\.[^\s]+/i.test(content)) {
@@ -96,7 +116,7 @@ export async function POST(request: NextRequest) {
     .from("comments")
     .insert({
       post_id,
-      author_id: user.id,
+      author_id: effectiveAuthorId,
       content: content.trim(),
       status,
       ...(parentComment ? { parent_id: parentComment.id } : {}),
@@ -108,19 +128,25 @@ export async function POST(request: NextRequest) {
 
   // Fire-and-forget notifications (only for approved comments)
   if (status === "approved") {
-    const authorNick = (profile as any).nick ?? "użytkownik";
+    const authorNick = effectiveNick;
     const isAdmin = !!(profile as any).is_admin;
+    const notifiedUserIds = new Set<string>();
 
-    Promise.all([
-      // @mention notifications
-      notifyMentions(supabase, content, user.id, authorNick, post_id, isAdmin),
-      // Notify post author about new comment
-      notifyPostReply(supabase, (post as any).author_id, (post as any).title, user.id, authorNick, post_id),
-      // Notify parent comment author about reply
-      parentComment
-        ? notifyCommentReply(supabase, parentComment.author_id, user.id, authorNick, post_id)
-        : Promise.resolve(),
-    ]).catch(() => {});
+    Promise.resolve().then(async () => {
+      // 1. Notify parent comment author (most specific — direct reply)
+      if (parentComment && parentComment.author_id !== effectiveAuthorId) {
+        await notifyCommentReply(supabase, parentComment.author_id, effectiveAuthorId, authorNick, post_id);
+        notifiedUserIds.add(parentComment.author_id);
+      }
+      // 2. Notify post author — only if not already notified above
+      const postAuthorId = (post as any).author_id;
+      if (postAuthorId !== effectiveAuthorId && !notifiedUserIds.has(postAuthorId)) {
+        await notifyPostReply(supabase, postAuthorId, (post as any).title, effectiveAuthorId, authorNick, post_id);
+        notifiedUserIds.add(postAuthorId);
+      }
+      // 3. @mention notifications — skip users already notified
+      await notifyMentions(supabase, content, effectiveAuthorId, authorNick, post_id, isAdmin, notifiedUserIds);
+    }).catch(() => {});
   }
 
   if (status === "flagged") {
@@ -131,5 +157,9 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  return NextResponse.json({ comment: data });
+  return NextResponse.json({
+    comment: data,
+    author_nick: effectiveNick,
+    author_avatar: effectiveAvatar,
+  });
 }
