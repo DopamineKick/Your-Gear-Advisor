@@ -99,21 +99,8 @@ export default function KonfiguratorZestawuPage() {
       />
       <div className="fixed inset-0 bg-gradient-to-t from-black via-black/80 to-black/60 pointer-events-none" style={{ zIndex: 0 }} />
 
-      {/* Header */}
-      <header
-        className="fixed top-0 left-0 md:left-60 right-0 z-30 backdrop-blur-xl border-b"
-        style={{ background: "rgba(0,0,0,0.85)", borderColor: "rgba(184,92,56,0.15)" }}
-      >
-        <div className="px-4 md:px-6 h-14 flex items-center">
-          <div className="w-10 md:hidden flex-shrink-0" />
-          <span className="text-white/80 text-sm font-medium" style={{ fontFamily: "var(--font-instrument), Georgia, serif" }}>
-            Konfigurator zestawu gitarowego
-          </span>
-        </div>
-      </header>
-
       {/* Main */}
-      <main className="relative z-10 md:ml-60 pt-14 min-h-screen flex flex-col">
+      <main className="relative z-10 md:ml-60 min-h-screen flex flex-col">
 
         {/* Title */}
         <div className="px-6 pt-10 pb-6 text-center">

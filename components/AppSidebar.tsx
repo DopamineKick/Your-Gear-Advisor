@@ -144,7 +144,7 @@ function SidebarContent({ pathname, onClose, onLogout, newPosts, onCommunityClic
           const isNotifications = href === "/powiadomienia";
 
           const badge =
-            isCommunity && newPosts > 0 ? newPosts :
+            isCommunity && newPosts > 0 ? 1 :
             isFavorites && favoritesCount > 0 ? favoritesCount :
             isConfigurator && configuratorCount > 0 ? configuratorCount :
             isNotifications && notificationsCount > 0 ? notificationsCount :
@@ -159,12 +159,16 @@ function SidebarContent({ pathname, onClose, onLogout, newPosts, onCommunityClic
                 onClose();
               }}
               className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
-                active
-                  ? "bg-[#B85C38]/15 text-[#B85C38] border border-[#B85C38]/30"
-                  : "text-white/55 hover:text-white hover:bg-white/5 border border-transparent"
+                isCommunity
+                  ? active
+                    ? "bg-[#2d6a4f]/25 text-[#52b788] border border-[#52b788]/40"
+                    : "text-[#74c69d] hover:text-[#95d5b2] hover:bg-[#2d6a4f]/15 border border-[#52b788]/20"
+                  : active
+                    ? "bg-[#B85C38]/15 text-[#B85C38] border border-[#B85C38]/30"
+                    : "text-white/55 hover:text-white hover:bg-white/5 border border-transparent"
               }`}
             >
-              <span className={active ? "text-[#B85C38]" : "text-white/40"}>
+              <span className={isCommunity ? (active ? "text-[#52b788]" : "text-[#74c69d]/70") : active ? "text-[#B85C38]" : "text-white/40"}>
                 <Icon />
               </span>
               <span className="flex-1">{label}</span>

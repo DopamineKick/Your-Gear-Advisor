@@ -25,21 +25,7 @@ export default function ArtykulyICiekawostkiPage() {
     <div className="min-h-screen bg-[#0a0a0a]">
       <AppSidebar />
 
-      <header
-        className="fixed top-0 left-0 md:left-60 right-0 z-30 backdrop-blur-xl border-b"
-        style={{ background: "rgba(0,0,0,0.85)", borderColor: "rgba(184,92,56,0.15)" }}
-      >
-        <div className="px-4 md:px-6 h-14 flex items-center justify-between">
-          <div className="w-10 md:hidden flex-shrink-0" />
-          <nav className="flex items-center gap-2 text-xs text-white/35">
-            <Link href="/onboarding" className="hover:text-white transition-colors">Szukaj</Link>
-            <span>/</span>
-            <span className="text-[#B85C38]">Artykuły i ciekawostki</span>
-          </nav>
-        </div>
-      </header>
-
-      <main className="pt-20 pb-20 px-4 md:ml-60">
+      <main className="pt-6 pb-20 px-4 md:ml-60">
         <div className="max-w-4xl mx-auto">
 
           <div className="mb-12">

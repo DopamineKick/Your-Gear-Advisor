@@ -57,3 +57,53 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({ ok: true });
 }
+
+// DELETE /api/community/likes — usuń like (tylko admin, z własnego konta)
+export async function DELETE(request: NextRequest) {
+  const token = request.headers.get("Authorization")?.replace("Bearer ", "");
+  if (!token) return NextResponse.json({ error: "Brak autoryzacji" }, { status: 401 });
+
+  const anonClient = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
+  const { data: { user } } = await anonClient.auth.getUser(token);
+  if (!user) return NextResponse.json({ error: "Nieważny token" }, { status: 401 });
+
+  const supabase = createClient(
+    process.env.SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+
+  // Only admin can unlike
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("is_admin")
+    .eq("id", user.id)
+    .single();
+
+  if (!profile?.is_admin) {
+    return NextResponse.json({ error: "Tylko admin może cofnąć like" }, { status: 403 });
+  }
+
+  const { target_type, target_id } = await request.json();
+  if (!target_type || !target_id) {
+    return NextResponse.json({ error: "Brak target_type lub target_id" }, { status: 400 });
+  }
+  if (target_type !== "post" && target_type !== "comment") {
+    return NextResponse.json({ error: "Nieprawidłowy target_type" }, { status: 400 });
+  }
+
+  const table = target_type === "post" ? "post_likes" : "comment_likes";
+  const column = target_type === "post" ? "post_id" : "comment_id";
+
+  const { error } = await supabase
+    .from(table)
+    .delete()
+    .eq("user_id", user.id)
+    .eq(column, target_id);
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  return NextResponse.json({ ok: true });
+}

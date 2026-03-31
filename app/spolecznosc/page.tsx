@@ -71,6 +71,10 @@ export default function SpolecznoscPage() {
   const [editingDate, setEditingDate] = useState<{ id: string; created_at: string } | null>(null);
   const [dateValue, setDateValue] = useState("");
 
+  // Admin: bot selector for new post
+  const [bots, setBots] = useState<{ id: string; nick: string; avatar_url: string | null }[]>([]);
+  const [selectedBotId, setSelectedBotId] = useState("");
+
   // Search & filter state
   const [searchQuery, setSearchQuery] = useState("");
   const [searchPosts, setSearchPosts] = useState(true);
@@ -95,7 +99,16 @@ export default function SpolecznoscPage() {
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
       const data = await res.json();
-      if (data.profile?.is_admin) setIsAdmin(true);
+      if (data.profile?.is_admin) {
+        setIsAdmin(true);
+        // Fetch bots for admin
+        fetch("/api/admin/bots", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        })
+          .then((r) => r.json())
+          .then((d) => setBots(d.bots ?? []))
+          .catch(() => {});
+      }
     });
     fetchPosts();
   }, []);
@@ -179,15 +192,22 @@ export default function SpolecznoscPage() {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) return;
 
+    const post = posts.find((p) => p.id === postId);
+    if (!post) return;
+
+    const isUnliking = isAdmin && post.user_liked;
+
     // Optimistic update
     setPosts((prev) =>
       prev.map((p) =>
-        p.id === postId ? { ...p, like_count: p.like_count + 1, user_liked: true } : p
+        p.id === postId
+          ? { ...p, like_count: isUnliking ? p.like_count - 1 : p.like_count + 1, user_liked: !isUnliking }
+          : p
       )
     );
 
     const res = await fetch("/api/community/likes", {
-      method: "POST",
+      method: isUnliking ? "DELETE" : "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${session.access_token}`,
@@ -199,15 +219,36 @@ export default function SpolecznoscPage() {
       // Revert on failure
       setPosts((prev) =>
         prev.map((p) =>
-          p.id === postId ? { ...p, like_count: p.like_count - 1, user_liked: false } : p
+          p.id === postId
+            ? { ...p, like_count: isUnliking ? p.like_count + 1 : p.like_count - 1, user_liked: isUnliking }
+            : p
         )
       );
+    }
+  }
+
+  async function handleDeletePost(postId: string) {
+    if (!window.confirm("Usunąć ten post? Tej akcji nie można cofnąć.")) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+
+    const res = await fetch(`/api/community/posts/${postId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+
+    if (res.ok) {
+      setPosts((prev) => prev.filter((p) => p.id !== postId));
     }
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim() || !content.trim()) return;
+    if (selectedTags.length === 0) {
+      setError("Wybierz co najmniej jeden tag do posta");
+      return;
+    }
     setSending(true);
     setError("");
 
@@ -220,7 +261,12 @@ export default function SpolecznoscPage() {
         "Content-Type": "application/json",
         Authorization: `Bearer ${session.access_token}`,
       },
-      body: JSON.stringify({ title, content, tags: selectedTags }),
+      body: JSON.stringify({
+        title,
+        content,
+        tags: selectedTags,
+        ...(selectedBotId ? { as_bot_id: selectedBotId } : {}),
+      }),
     });
     const data = await res.json();
     setSending(false);
@@ -233,6 +279,7 @@ export default function SpolecznoscPage() {
     setTitle("");
     setContent("");
     setSelectedTags([]);
+    setSelectedBotId("");
     setShowForm(false);
     setSuccessMsg(data.message ?? "Post wysłany");
     if (data.post?.status === "approved") fetchPosts();
@@ -433,6 +480,24 @@ export default function SpolecznoscPage() {
               Nowy post
             </h2>
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+              {/* Admin: bot selector */}
+              {isAdmin && bots.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-white/30">Napisz jako:</span>
+                  <select
+                    value={selectedBotId}
+                    onChange={(e) => setSelectedBotId(e.target.value)}
+                    className="text-xs text-white rounded-lg px-3 py-1.5 outline-none border border-white/10 focus:border-[#B85C38]/50 transition-colors"
+                    style={{ background: "rgba(0,0,0,0.5)", colorScheme: "dark" }}
+                  >
+                    <option value="">Moje konto (admin)</option>
+                    {bots.map((b) => (
+                      <option key={b.id} value={b.id}>🤖 {b.nick}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <input
                 type="text"
                 placeholder="Tytuł posta..."
@@ -451,9 +516,11 @@ export default function SpolecznoscPage() {
                 style={{ background: "rgba(0,0,0,0.5)", fontFamily: "var(--font-inter), system-ui, sans-serif" }}
               />
 
-              {/* Tag selector */}
+              {/* Tag selector — wymagane */}
               <div>
-                <p className="text-xs text-white/40 mb-2">Tagi (opcjonalnie):</p>
+                <p className="text-xs text-white/40 mb-2">
+                  Tagi (dopasuj tagi aby ułatwić późniejsze wyszukiwanie Twojego posta):
+                </p>
                 <div className="flex flex-wrap gap-1.5">
                   {ALL_TAGS.map((tag) => (
                     <button
@@ -486,7 +553,7 @@ export default function SpolecznoscPage() {
               <div className="flex gap-3 justify-end">
                 <button
                   type="button"
-                  onClick={() => setShowForm(false)}
+                  onClick={() => { setShowForm(false); setError(""); }}
                   className="px-4 py-2 rounded-xl text-sm text-white/50 hover:text-white transition-colors"
                   style={{ background: "transparent" }}
                 >
@@ -583,9 +650,10 @@ export default function SpolecznoscPage() {
                     className="flex items-center gap-1 transition-colors"
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (!post.user_liked) handleLike(post.id);
+                      if (!post.user_liked || isAdmin) handleLike(post.id);
                     }}
-                    style={{ cursor: post.user_liked ? "default" : "pointer" }}
+                    style={{ cursor: (!post.user_liked || isAdmin) ? "pointer" : "default" }}
+                    title={isAdmin && post.user_liked ? "Kliknij aby cofnąć like (admin)" : undefined}
                   >
                     <svg
                       width="16"
@@ -594,7 +662,7 @@ export default function SpolecznoscPage() {
                       fill={post.user_liked ? "#B85C38" : "none"}
                       stroke={post.user_liked ? "#B85C38" : "currentColor"}
                       strokeWidth="2"
-                      className={post.user_liked ? "" : "hover:stroke-[#B85C38] transition-colors"}
+                      className={(!post.user_liked || isAdmin) ? "hover:stroke-[#B85C38] transition-colors" : ""}
                     >
                       <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>
                     </svg>
@@ -614,17 +682,30 @@ export default function SpolecznoscPage() {
                   </span>
 
                   {isAdmin && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); openDateEditor(post.id, post.created_at); }}
-                      className="text-xs text-white/20 hover:text-[#B85C38] transition-colors flex items-center gap-1 ml-auto"
-                      style={{ background: "transparent" }}
-                      title="Edytuj datę (admin)"
-                    >
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
-                      </svg>
-                      Data
-                    </button>
+                    <div className="ml-auto flex items-center gap-3">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); openDateEditor(post.id, post.created_at); }}
+                        className="text-xs text-white/20 hover:text-[#B85C38] transition-colors flex items-center gap-1"
+                        style={{ background: "transparent" }}
+                        title="Edytuj datę (admin)"
+                      >
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+                        </svg>
+                        Data
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDeletePost(post.id); }}
+                        className="text-xs text-red-500/50 hover:text-red-400 transition-colors flex items-center gap-1"
+                        style={{ background: "transparent" }}
+                        title="Usuń post (admin)"
+                      >
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
+                        </svg>
+                        Usuń
+                      </button>
+                    </div>
                   )}
                 </div>
               </button>

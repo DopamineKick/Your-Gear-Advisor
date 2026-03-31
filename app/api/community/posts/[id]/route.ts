@@ -115,7 +115,7 @@ export async function GET(
   });
 }
 
-// PATCH /api/community/posts/[id] — admin: edit created_at
+// PATCH /api/community/posts/[id] — admin: edit created_at, title, content
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }
@@ -138,14 +138,73 @@ export async function PATCH(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { created_at } = await req.json();
-  if (!created_at || isNaN(Date.parse(created_at))) {
-    return NextResponse.json({ error: "Nieprawidłowa data" }, { status: 400 });
+  const body = await req.json();
+  const updates: Record<string, unknown> = {};
+
+  if (body.created_at !== undefined) {
+    if (!body.created_at || isNaN(Date.parse(body.created_at))) {
+      return NextResponse.json({ error: "Nieprawidłowa data" }, { status: 400 });
+    }
+    updates.created_at = new Date(body.created_at).toISOString();
+  }
+
+  if (body.title !== undefined) {
+    if (!body.title?.trim()) return NextResponse.json({ error: "Tytuł nie może być pusty" }, { status: 400 });
+    updates.title = body.title.trim();
+  }
+
+  if (body.content !== undefined) {
+    if (!body.content?.trim()) return NextResponse.json({ error: "Treść nie może być pusta" }, { status: 400 });
+    updates.content = body.content.trim();
+  }
+
+  if (body.tags !== undefined) {
+    if (!Array.isArray(body.tags)) {
+      return NextResponse.json({ error: "Nieprawidłowe tagi" }, { status: 400 });
+    }
+    updates.tags = (body.tags as unknown[]).filter((t) => typeof t === "string" && (t as string).trim());
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return NextResponse.json({ error: "Brak pól do zaktualizowania" }, { status: 400 });
   }
 
   const { error } = await supabase
     .from("posts")
-    .update({ created_at: new Date(created_at).toISOString() })
+    .update(updates)
+    .eq("id", params.id);
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  return NextResponse.json({ ok: true });
+}
+
+// DELETE /api/community/posts/[id] — admin: usuń post
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  const userId = await requireAuth(req.headers.get("Authorization"));
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const supabase = createClient(
+    process.env.SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("is_admin")
+    .eq("id", userId)
+    .single();
+
+  if (!profile?.is_admin) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const { error } = await supabase
+    .from("posts")
+    .delete()
     .eq("id", params.id);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

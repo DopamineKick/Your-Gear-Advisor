@@ -80,12 +80,6 @@ function DashboardInner() {
             </button>
           </form>
 
-          {/* Breadcrumb */}
-          <nav className="hidden lg:flex items-center gap-2 text-xs text-white/35 flex-shrink-0">
-            <a href="/onboarding" className="hover:text-[#B85C38] transition-colors">Preferencje</a>
-            <span>/</span>
-            <span className="text-[#B85C38]">Rekomendacje</span>
-          </nav>
         </div>
       </header>
 

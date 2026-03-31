@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
-import { notifyMentions } from "@/lib/notifications";
+import { notifyMentions, notifySelf } from "@/lib/notifications";
 
 // GET /api/community/posts — lista zatwierdzonych postów
 export async function GET(request: NextRequest) {
@@ -146,7 +146,7 @@ export async function POST(request: NextRequest) {
   const { data: { user } } = await anonClient.auth.getUser(token);
   if (!user) return NextResponse.json({ error: "Nieważny token" }, { status: 401 });
 
-  const { title, content, tags } = await request.json();
+  const { title, content, tags, as_bot_id } = await request.json();
   if (!title?.trim() || !content?.trim()) {
     return NextResponse.json({ error: "Tytuł i treść są wymagane" }, { status: 400 });
   }
@@ -158,12 +158,31 @@ export async function POST(request: NextRequest) {
   // Pobierz profil użytkownika
   const { data: profile } = await supabase
     .from("profiles")
-    .select("id, is_admin")
+    .select("id, nick, is_admin")
     .eq("id", user.id)
     .single();
 
   if (!profile) {
     return NextResponse.json({ error: "Brak profilu – ustaw nick w Ustawieniach" }, { status: 403 });
+  }
+
+  // Admin może pisać jako bot
+  let effectiveAuthorId = user.id;
+  let effectiveNick = (profile as any).nick ?? "użytkownik";
+  const postingAsBot = !!(as_bot_id && (profile as any).is_admin);
+
+  if (postingAsBot) {
+    const { data: botProfile } = await supabase
+      .from("profiles")
+      .select("id, nick, is_bot")
+      .eq("id", as_bot_id)
+      .eq("is_bot", true)
+      .single();
+    if (!botProfile) {
+      return NextResponse.json({ error: "Bot nie znaleziony" }, { status: 404 });
+    }
+    effectiveAuthorId = botProfile.id;
+    effectiveNick = botProfile.nick;
   }
 
   if (!(profile as any).is_admin && /https?:\/\/[^\s]+|www\.[^\s]+/i.test(title + " " + content)) {
@@ -189,15 +208,23 @@ export async function POST(request: NextRequest) {
 
   const { data, error } = await supabase
     .from("posts")
-    .insert({ author_id: user.id, title: title.trim(), content: content.trim(), status, tags: validTags })
+    .insert({ author_id: effectiveAuthorId, title: title.trim(), content: content.trim(), status, tags: validTags })
     .select("*, profiles!author_id(nick)")
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Fire-and-forget: mention notifications
-  const authorNick = (data as any).profiles?.nick ?? "użytkownik";
-  notifyMentions(supabase, title + " " + content, user.id, authorNick, (data as any).id, !!(profile as any).is_admin).catch(() => {});
+  // Fire-and-forget notifications
+  const isAdmin = !!(profile as any).is_admin;
+  notifyMentions(supabase, title + " " + content, effectiveAuthorId, effectiveNick, (data as any).id, isAdmin).catch(() => {});
+
+  // Self-notification (only when not posting as a bot)
+  if (!postingAsBot) {
+    const selfContent = status === "approved"
+      ? `Twój post „${title.trim().slice(0, 50)}" został opublikowany`
+      : `Twój post „${title.trim().slice(0, 50)}" wysłany do moderacji`;
+    notifySelf(supabase, user.id, selfContent, status === "approved" ? (data as any).id : null).catch(() => {});
+  }
 
   const message = (profile as any).is_admin
     ? "Post opublikowany"

@@ -8,6 +8,28 @@ import { useSupabase } from "@/components/SupabaseProvider";
 
 const DEFAULT_AVATAR = "/profile-avatars/avatar_black_strat.png";
 
+const ALL_TAGS = [
+  "gitara elektryczna",
+  "gitara akustyczna",
+  "gitara klasyczna",
+  "gitara basowa",
+  "efekty gitarowe",
+  "multiefekty",
+  "wtyczki VST",
+  "home recording",
+  "artyści",
+  "albumy muzyczne",
+  "koncerty",
+  "lutnictwo i serwis gitarowy",
+  "wzmacniacze gitarowe",
+  "wzmacniacze basowe",
+  "nagłośnienie",
+  "części gitarowe",
+  "brzmienie gitarowe",
+  "oferty",
+  "treści na youtube",
+];
+
 interface Post {
   id: string;
   title: string;
@@ -78,6 +100,14 @@ export default function PostPage() {
   const [replyTo, setReplyTo] = useState<{ id: string; nick: string } | null>(null);
   const [editingDate, setEditingDate] = useState<{ type: "post" | "comment"; id: string } | null>(null);
   const [dateValue, setDateValue] = useState("");
+  const [editingPost, setEditingPost] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editContent, setEditContent] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+  // Tag editor
+  const [editingTags, setEditingTags] = useState(false);
+  const [tagEditorSelection, setTagEditorSelection] = useState<string[]>([]);
+  const [tagSaving, setTagSaving] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const commentsEndRef = useRef<HTMLDivElement>(null);
 
@@ -123,19 +153,28 @@ export default function PostPage() {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) return;
 
+    const currentLiked =
+      targetType === "post"
+        ? post?.user_liked ?? false
+        : comments.find((c) => c.id === targetId)?.user_liked ?? false;
+
+    const isUnliking = isAdmin && currentLiked;
+
     // Optimistic update
     if (targetType === "post" && post) {
-      setPost({ ...post, like_count: post.like_count + 1, user_liked: true });
+      setPost({ ...post, like_count: isUnliking ? post.like_count - 1 : post.like_count + 1, user_liked: !isUnliking });
     } else {
       setComments((prev) =>
         prev.map((c) =>
-          c.id === targetId ? { ...c, like_count: c.like_count + 1, user_liked: true } : c
+          c.id === targetId
+            ? { ...c, like_count: isUnliking ? c.like_count - 1 : c.like_count + 1, user_liked: !isUnliking }
+            : c
         )
       );
     }
 
     const res = await fetch("/api/community/likes", {
-      method: "POST",
+      method: isUnliking ? "DELETE" : "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${session.access_token}`,
@@ -146,14 +185,32 @@ export default function PostPage() {
     if (!res.ok) {
       // Revert on failure
       if (targetType === "post" && post) {
-        setPost((prev) => prev ? { ...prev, like_count: prev.like_count - 1, user_liked: false } : prev);
+        setPost((prev) => prev ? { ...prev, like_count: isUnliking ? prev.like_count + 1 : prev.like_count - 1, user_liked: isUnliking } : prev);
       } else {
         setComments((prev) =>
           prev.map((c) =>
-            c.id === targetId ? { ...c, like_count: c.like_count - 1, user_liked: false } : c
+            c.id === targetId
+              ? { ...c, like_count: isUnliking ? c.like_count + 1 : c.like_count - 1, user_liked: isUnliking }
+              : c
           )
         );
       }
+    }
+  }
+
+  async function handleDeletePost() {
+    if (!post) return;
+    if (!window.confirm("Usunąć ten post? Tej akcji nie można cofnąć.")) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+
+    const res = await fetch(`/api/community/posts/${post.id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+
+    if (res.ok) {
+      router.replace("/spolecznosc");
     }
   }
 
@@ -180,13 +237,63 @@ export default function PostPage() {
   }
 
   function openDateEditor(type: "post" | "comment", id: string, currentDate: string) {
-    // Format to datetime-local: "YYYY-MM-DDThh:mm"
     const d = new Date(currentDate);
     const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
       .toISOString()
       .slice(0, 16);
     setDateValue(local);
     setEditingDate({ type, id });
+  }
+
+  function openPostEditor() {
+    if (!post) return;
+    setEditTitle(post.title);
+    setEditContent(post.content);
+    setEditingPost(true);
+  }
+
+  function openTagEditor() {
+    if (!post) return;
+    setTagEditorSelection(post.tags ?? []);
+    setEditingTags(true);
+  }
+
+  async function handleSavePost() {
+    if (!post || !editTitle.trim() || !editContent.trim()) return;
+    setEditSaving(true);
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { setEditSaving(false); return; }
+
+    const res = await fetch(`/api/community/posts/${post.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ title: editTitle, content: editContent }),
+    });
+
+    setEditSaving(false);
+    if (res.ok) {
+      setPost({ ...post, title: editTitle.trim(), content: editContent.trim() });
+      setEditingPost(false);
+    }
+  }
+
+  async function handleSaveTags() {
+    if (!post) return;
+    setTagSaving(true);
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { setTagSaving(false); return; }
+
+    const res = await fetch(`/api/community/posts/${post.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ tags: tagEditorSelection }),
+    });
+
+    setTagSaving(false);
+    if (res.ok) {
+      setPost({ ...post, tags: tagEditorSelection });
+      setEditingTags(false);
+    }
   }
 
   async function handleSaveDate() {
@@ -301,8 +408,9 @@ export default function PostPage() {
             {/* Like button for comment */}
             <span
               className="flex items-center gap-1 transition-colors"
-              onClick={() => { if (!c.user_liked) handleLike("comment", c.id); }}
-              style={{ cursor: c.user_liked ? "default" : "pointer" }}
+              onClick={() => { if (!c.user_liked || isAdmin) handleLike("comment", c.id); }}
+              style={{ cursor: (!c.user_liked || isAdmin) ? "pointer" : "default" }}
+              title={isAdmin && c.user_liked ? "Kliknij aby cofnąć like (admin)" : undefined}
             >
               <svg
                 width="14"
@@ -311,7 +419,7 @@ export default function PostPage() {
                 fill={c.user_liked ? "#B85C38" : "none"}
                 stroke={c.user_liked ? "#B85C38" : "currentColor"}
                 strokeWidth="2"
-                className={c.user_liked ? "" : "hover:stroke-[#B85C38] transition-colors"}
+                className={(!c.user_liked || isAdmin) ? "hover:stroke-[#B85C38] transition-colors" : ""}
               >
                 <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>
               </svg>
@@ -410,10 +518,11 @@ export default function PostPage() {
               style={{ fontFamily: "var(--font-inter), system-ui, sans-serif" }}>
               {post.content}
             </p>
+
             {/* Tags */}
-            {post.tags && post.tags.length > 0 && (
+            {!editingTags && (
               <div className="flex flex-wrap gap-1.5 mb-4">
-                {post.tags.map((tag) => (
+                {(post.tags ?? []).map((tag) => (
                   <span
                     key={tag}
                     className="px-2 py-0.5 rounded text-xs"
@@ -426,6 +535,90 @@ export default function PostPage() {
                     {tag}
                   </span>
                 ))}
+                {post.tags?.length === 0 && isAdmin && (
+                  <span className="text-xs text-white/20">brak tagów</span>
+                )}
+              </div>
+            )}
+
+            {/* Tag editor — admin only */}
+            {editingTags && (
+              <div className="mb-4 p-4 rounded-xl" style={{ background: "rgba(0,0,0,0.3)", border: "1px solid rgba(184,92,56,0.2)" }}>
+                <p className="text-xs text-white/40 mb-2">Wybierz tagi:</p>
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  {ALL_TAGS.map((tag) => (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() =>
+                        setTagEditorSelection((prev) =>
+                          prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
+                        )
+                      }
+                      className="px-2.5 py-1 rounded-md text-xs transition-all"
+                      style={{
+                        background: tagEditorSelection.includes(tag) ? "rgba(184,92,56,0.3)" : "rgba(255,255,255,0.05)",
+                        border: tagEditorSelection.includes(tag) ? "1px solid rgba(184,92,56,0.6)" : "1px solid rgba(255,255,255,0.08)",
+                        color: tagEditorSelection.includes(tag) ? "#D07A50" : "rgba(255,255,255,0.4)",
+                      }}
+                    >
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <button
+                    onClick={() => setEditingTags(false)}
+                    className="px-3 py-1.5 rounded-lg text-xs text-white/40 hover:text-white transition-colors"
+                    style={{ background: "transparent" }}
+                  >
+                    Anuluj
+                  </button>
+                  <button
+                    onClick={handleSaveTags}
+                    disabled={tagSaving}
+                    className="px-4 py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-40 transition-all hover:scale-[1.02]"
+                    style={{ background: "linear-gradient(135deg, #B85C38, #D07A50)" }}
+                  >
+                    {tagSaving ? "Zapisuję..." : "Zapisz tagi"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Admin actions above metadata */}
+            {isAdmin && (
+              <div className="flex justify-end gap-4 mb-3">
+                <button
+                  onClick={openTagEditor}
+                  className="flex items-center gap-1.5 text-xs text-white/30 hover:text-[#B85C38] transition-colors"
+                  style={{ background: "transparent" }}
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>
+                  </svg>
+                  Edytuj tagi
+                </button>
+                <button
+                  onClick={openPostEditor}
+                  className="flex items-center gap-1.5 text-xs text-white/30 hover:text-[#B85C38] transition-colors"
+                  style={{ background: "transparent" }}
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                  </svg>
+                  Edytuj treść
+                </button>
+                <button
+                  onClick={handleDeletePost}
+                  className="flex items-center gap-1.5 text-xs text-red-500/50 hover:text-red-400 transition-colors"
+                  style={{ background: "transparent" }}
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
+                  </svg>
+                  Usuń post
+                </button>
               </div>
             )}
 
@@ -441,8 +634,9 @@ export default function PostPage() {
               {/* Like button for post */}
               <span
                 className="flex items-center gap-1 transition-colors"
-                onClick={() => { if (!post.user_liked) handleLike("post", post.id); }}
-                style={{ cursor: post.user_liked ? "default" : "pointer" }}
+                onClick={() => { if (!post.user_liked || isAdmin) handleLike("post", post.id); }}
+                style={{ cursor: (!post.user_liked || isAdmin) ? "pointer" : "default" }}
+                title={isAdmin && post.user_liked ? "Kliknij aby cofnąć like (admin)" : undefined}
               >
                 <svg
                   width="16"
@@ -451,7 +645,7 @@ export default function PostPage() {
                   fill={post.user_liked ? "#B85C38" : "none"}
                   stroke={post.user_liked ? "#B85C38" : "currentColor"}
                   strokeWidth="2"
-                  className={post.user_liked ? "" : "hover:stroke-[#B85C38] transition-colors"}
+                  className={(!post.user_liked || isAdmin) ? "hover:stroke-[#B85C38] transition-colors" : ""}
                 >
                   <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>
                 </svg>
@@ -494,6 +688,50 @@ export default function PostPage() {
             </div>
           )}
         </div>
+
+        {/* Modal edycji treści posta — admin only */}
+        {editingPost && post && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)" }}>
+            <div className="rounded-2xl p-6 w-full max-w-lg mx-4" style={{ background: "#111", border: "2px solid rgba(184,92,56,0.55)" }}>
+              <h3 className="text-white font-semibold text-sm mb-4" style={{ fontFamily: "var(--font-instrument), Georgia, serif" }}>
+                Edytuj treść posta
+              </h3>
+              <input
+                type="text"
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                placeholder="Tytuł"
+                maxLength={80}
+                className="w-full text-white text-sm rounded-xl px-4 py-3 outline-none border border-white/10 focus:border-[#B85C38]/50 transition-colors mb-3"
+                style={{ background: "rgba(0,0,0,0.5)", fontFamily: "var(--font-inter), sans-serif" }}
+              />
+              <textarea
+                value={editContent}
+                onChange={(e) => setEditContent(e.target.value)}
+                rows={8}
+                className="w-full text-white text-sm rounded-xl px-4 py-3 outline-none border border-white/10 focus:border-[#B85C38]/50 transition-colors resize-none mb-4"
+                style={{ background: "rgba(0,0,0,0.5)", fontFamily: "var(--font-inter), sans-serif" }}
+              />
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={() => setEditingPost(false)}
+                  className="px-4 py-2 rounded-xl text-sm text-white/50 hover:text-white transition-colors"
+                  style={{ background: "transparent" }}
+                >
+                  Anuluj
+                </button>
+                <button
+                  onClick={handleSavePost}
+                  disabled={editSaving || !editTitle.trim() || !editContent.trim()}
+                  className="px-5 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-40 transition-all hover:scale-[1.02]"
+                  style={{ background: "linear-gradient(135deg, #B85C38, #D07A50)" }}
+                >
+                  {editSaving ? "Zapisuję..." : "Zapisz"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Modal edycji daty — admin only */}
         {editingDate && (

@@ -48,27 +48,8 @@ export default function FavoritesPage() {
       <div className="fixed inset-0 bg-gradient-to-t from-black via-black/75 to-black/55 pointer-events-none" style={{ zIndex: 0 }} />
       <div className="fixed inset-0 bg-gradient-to-r from-black/30 via-transparent to-black/30 pointer-events-none" style={{ zIndex: 0 }} />
 
-      {/* Top nav */}
-      <header
-        className="fixed top-0 left-0 md:left-60 right-0 z-30 backdrop-blur-xl border-b"
-        style={{ background: "rgba(0,0,0,0.85)", borderColor: "rgba(184,92,56,0.15)" }}
-      >
-        <div className="px-4 md:px-6 h-14 flex items-center justify-between">
-          {/* Space for hamburger */}
-          <div className="w-10 md:hidden flex-shrink-0" />
-
-          <nav className="flex items-center gap-2 text-xs text-white/35">
-            <Link href="/onboarding" className="hover:text-white transition-colors">Szukaj</Link>
-            <span>/</span>
-            <Link href="/dashboard" className="hover:text-[#B85C38] transition-colors">Rekomendacje</Link>
-            <span>/</span>
-            <span className="text-[#B85C38]">Ulubione</span>
-          </nav>
-        </div>
-      </header>
-
       {/* Main content */}
-      <main className="relative z-10 pt-20 pb-16 px-4 md:ml-60">
+      <main className="relative z-10 pt-6 pb-16 px-4 md:ml-60">
           {/* Header - left-aligned */}
           <div className="max-w-5xl mb-10">
             <div className="flex items-center gap-3 mb-1">

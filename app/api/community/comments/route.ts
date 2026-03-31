@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
-import { notifyMentions, notifyPostReply, notifyCommentReply } from "@/lib/notifications";
+import { notifyMentions, notifyPostReply, notifyCommentReply, notifySelf } from "@/lib/notifications";
 
 // POST /api/community/comments — dodaj komentarz (moderacja OpenAI)
 export async function POST(request: NextRequest) {
@@ -147,6 +147,15 @@ export async function POST(request: NextRequest) {
       // 3. @mention notifications — skip users already notified
       await notifyMentions(supabase, content, effectiveAuthorId, authorNick, post_id, isAdmin, notifiedUserIds);
     }).catch(() => {});
+  }
+
+  // Self-notification (only when not writing as a bot)
+  if (!as_bot_id) {
+    if (status === "approved") {
+      notifySelf(supabase, user.id, `Twój komentarz w poście „${((post as any).title ?? "").slice(0, 50)}" został opublikowany`, post_id).catch(() => {});
+    } else if (status === "flagged") {
+      notifySelf(supabase, user.id, `Twój komentarz oczekuje na moderację`, null).catch(() => {});
+    }
   }
 
   if (status === "flagged") {

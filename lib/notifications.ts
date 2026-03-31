@@ -91,6 +91,25 @@ export async function notifyPostReply(
 }
 
 /**
+ * Creates a self-notification for the user about their own action (post or comment).
+ * Used to confirm that the action was taken.
+ */
+export async function notifySelf(
+  supabase: SupabaseClient,
+  userId: string,
+  content: string,
+  postId: string | null
+): Promise<void> {
+  await supabase.from("notifications").insert({
+    user_id: userId,
+    type: "own_action",
+    from_nick: "System",
+    post_id: postId,
+    content,
+  });
+}
+
+/**
  * Creates a 'reply' notification for the parent comment author.
  * Skips if replier is the parent comment author.
  */

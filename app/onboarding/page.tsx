@@ -72,11 +72,6 @@ export default function OnboardingPage() {
           <span className="text-white font-bold text-xl tracking-wide"> Advisor</span>
         </a>
 
-        <nav className="flex items-center gap-2 text-xs text-white/35" aria-label="breadcrumb">
-          <a href="/onboarding" className="hover:text-white transition-colors">Szukaj</a>
-          <span>/</span>
-          <a href="/dashboard" className="hover:text-white transition-colors">Rekomendacje</a>
-        </nav>
       </div>
 
       {/* Main content */}
@@ -85,9 +80,6 @@ export default function OnboardingPage() {
 
           {/* Heading */}
           <div className="mb-8 text-center">
-            <p className="text-[#B85C38] text-xs font-semibold uppercase tracking-widest mb-4">
-              Krok 1 z 1
-            </p>
             <h1
               style={{
                 fontFamily: "var(--font-instrument), Georgia, serif",
