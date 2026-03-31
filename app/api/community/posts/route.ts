@@ -18,6 +18,7 @@ export async function GET(request: NextRequest) {
   const tagsParam = searchParams.get("tags"); // comma-separated
   const search = searchParams.get("search")?.trim();
   const searchComments = searchParams.get("search_comments") === "true";
+  const searchPostsText = searchParams.get("posts_search") !== "false"; // default true
 
   // Optional auth — for "has user liked" info
   const token = request.headers.get("Authorization")?.replace("Bearer ", "");
@@ -42,53 +43,78 @@ export async function GET(request: NextRequest) {
     commentMatchPostIds = [...new Set((commentMatches ?? []).map((c: any) => c.post_id))];
   }
 
-  let query = supabase
-    .from("posts")
-    .select(`
-      id, title, content, status, created_at, tags,
-      profiles!author_id ( nick, avatar_url ),
-      comments ( count ),
-      post_likes ( count )
-    `)
-    .eq("status", "approved")
-    .order("created_at", { ascending: false });
+  // Try with tags column first; fall back to without if migration not yet applied
+  const buildQuery = (withTags: boolean) => {
+    let q = supabase
+      .from("posts")
+      .select(`
+        id, title, content, status, created_at,${withTags ? " tags," : ""}
+        profiles!author_id ( nick, avatar_url ),
+        comments ( count )
+      `)
+      .eq("status", "approved")
+      .order("created_at", { ascending: false });
 
-  // Tag filter (OR — any of selected tags)
-  if (tagsParam) {
-    const tags = tagsParam.split(",").map((t) => t.trim()).filter(Boolean);
-    if (tags.length > 0) {
-      query = query.overlaps("tags", tags);
+    if (withTags && tagsParam) {
+      const tags = tagsParam.split(",").map((t) => t.trim()).filter(Boolean);
+      if (tags.length > 0) q = q.overlaps("tags", tags);
     }
+
+    if (search) {
+      if (searchPostsText && commentMatchPostIds && commentMatchPostIds.length > 0) {
+        q = q.or(`title.ilike.%${search}%,content.ilike.%${search}%,id.in.(${commentMatchPostIds.join(",")})`);
+      } else if (searchPostsText) {
+        q = q.or(`title.ilike.%${search}%,content.ilike.%${search}%`);
+      } else if (commentMatchPostIds && commentMatchPostIds.length > 0) {
+        q = q.in("id", commentMatchPostIds);
+      } else if (!searchPostsText && searchComments) {
+        return null;
+      }
+    }
+
+    return q;
+  };
+
+  let queryObj = buildQuery(true);
+  if (!queryObj) return NextResponse.json({ posts: [] });
+
+  let { data, error } = await queryObj.range(offset, offset + limit - 1);
+
+  // If tags column doesn't exist yet — retry without it
+  if (error) {
+    const fallback = buildQuery(false);
+    if (!fallback) return NextResponse.json({ posts: [] });
+    const result = await fallback.range(offset, offset + limit - 1);
+    if (result.error) return NextResponse.json({ error: result.error.message }, { status: 500 });
+    data = result.data;
+    error = null;
   }
 
-  // Text search in posts
-  if (search) {
-    if (commentMatchPostIds && commentMatchPostIds.length > 0) {
-      // Search in posts OR include posts with matching comments
-      query = query.or(`title.ilike.%${search}%,content.ilike.%${search}%,id.in.(${commentMatchPostIds.join(",")})`);
-    } else if (searchComments && commentMatchPostIds?.length === 0) {
-      // Comments search enabled but no comment matches — just search posts
-      query = query.or(`title.ilike.%${search}%,content.ilike.%${search}%`);
-    } else {
-      // Only search posts
-      query = query.or(`title.ilike.%${search}%,content.ilike.%${search}%`);
-    }
-  }
-
-  const { data, error } = await query.range(offset, offset + limit - 1);
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  // Get user's likes for these posts
   const postIds = (data ?? []).map((p: any) => p.id);
+
+  // Get like counts and user likes — wrapped in try/catch in case migration not yet applied
+  let likeCountMap = new Map<string, number>();
   let userLikedPostIds = new Set<string>();
-  if (userId && postIds.length > 0) {
-    const { data: userLikes } = await serviceClient
-      .from("post_likes")
-      .select("post_id")
-      .eq("user_id", userId)
-      .in("post_id", postIds);
-    userLikedPostIds = new Set((userLikes ?? []).map((l: any) => l.post_id));
+  try {
+    if (postIds.length > 0) {
+      const { data: likeCounts } = await serviceClient
+        .from("post_likes")
+        .select("post_id")
+        .in("post_id", postIds);
+      for (const l of likeCounts ?? []) {
+        likeCountMap.set(l.post_id, (likeCountMap.get(l.post_id) ?? 0) + 1);
+      }
+      if (userId) {
+        const { data: userLikes } = await serviceClient
+          .from("post_likes")
+          .select("post_id")
+          .eq("user_id", userId)
+          .in("post_id", postIds);
+        userLikedPostIds = new Set((userLikes ?? []).map((l: any) => l.post_id));
+      }
+    }
+  } catch {
+    // Migration not yet applied — likes not available yet
   }
 
   // Spłaszcz strukturę dla frontendu
@@ -101,7 +127,7 @@ export async function GET(request: NextRequest) {
     author_nick: p.profiles?.nick ?? "użytkownik",
     author_avatar: p.profiles?.avatar_url ?? null,
     comment_count: p.comments?.[0]?.count ?? 0,
-    like_count: p.post_likes?.[0]?.count ?? 0,
+    like_count: likeCountMap.get(p.id) ?? 0,
     user_liked: userLikedPostIds.has(p.id),
   }));
 

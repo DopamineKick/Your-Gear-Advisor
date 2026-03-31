@@ -123,6 +123,17 @@ export default function PostPage() {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) return;
 
+    // Optimistic update
+    if (targetType === "post" && post) {
+      setPost({ ...post, like_count: post.like_count + 1, user_liked: true });
+    } else {
+      setComments((prev) =>
+        prev.map((c) =>
+          c.id === targetId ? { ...c, like_count: c.like_count + 1, user_liked: true } : c
+        )
+      );
+    }
+
     const res = await fetch("/api/community/likes", {
       method: "POST",
       headers: {
@@ -132,13 +143,14 @@ export default function PostPage() {
       body: JSON.stringify({ target_type: targetType, target_id: targetId }),
     });
 
-    if (res.ok) {
+    if (!res.ok) {
+      // Revert on failure
       if (targetType === "post" && post) {
-        setPost({ ...post, like_count: post.like_count + 1, user_liked: true });
+        setPost((prev) => prev ? { ...prev, like_count: prev.like_count - 1, user_liked: false } : prev);
       } else {
         setComments((prev) =>
           prev.map((c) =>
-            c.id === targetId ? { ...c, like_count: c.like_count + 1, user_liked: true } : c
+            c.id === targetId ? { ...c, like_count: c.like_count - 1, user_liked: false } : c
           )
         );
       }

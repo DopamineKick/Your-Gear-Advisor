@@ -28,18 +28,25 @@ export async function GET(
     userId = user?.id ?? null;
   }
 
-  const { data: post, error } = await supabase
+  // Try with tags first; fall back without tags if migration not yet applied
+  let postResult = await supabase
     .from("posts")
-    .select(`
-      id, title, content, status, created_at, tags,
-      profiles!author_id ( nick, avatar_url ),
-      post_likes ( count )
-    `)
+    .select(`id, title, content, status, created_at, tags, profiles!author_id ( nick, avatar_url )`)
     .eq("id", params.id)
     .eq("status", "approved")
     .single();
 
-  if (error || !post) {
+  if (postResult.error) {
+    postResult = await supabase
+      .from("posts")
+      .select(`id, title, content, status, created_at, profiles!author_id ( nick, avatar_url )`)
+      .eq("id", params.id)
+      .eq("status", "approved")
+      .single();
+  }
+
+  const post = postResult.data;
+  if (postResult.error || !post) {
     return NextResponse.json({ error: "Post nie znaleziony" }, { status: 404 });
   }
 
@@ -47,28 +54,40 @@ export async function GET(
     .from("comments")
     .select(`
       id, content, created_at, parent_id,
-      profiles!author_id ( nick, avatar_url ),
-      comment_likes ( count )
+      profiles!author_id ( nick, avatar_url )
     `)
     .eq("post_id", params.id)
     .eq("status", "approved")
     .order("created_at", { ascending: true });
 
-  // Get user's likes
-  let userLikedPostIds = new Set<string>();
-  let userLikedCommentIds = new Set<string>();
-  if (userId) {
-    const commentIds = (comments ?? []).map((c: any) => c.id);
+  const commentIds = (comments ?? []).map((c: any) => c.id);
 
-    const [postLikesRes, commentLikesRes] = await Promise.all([
-      serviceClient.from("post_likes").select("post_id").eq("user_id", userId).eq("post_id", params.id),
+  // Get like counts and user likes — wrapped in try/catch in case migration not yet applied
+  let postLikeCount = 0;
+  let userLikedPost = false;
+  let commentLikeCountMap = new Map<string, number>();
+  let userLikedCommentIds = new Set<string>();
+  try {
+    const [postLikesAll, commentLikesAll] = await Promise.all([
+      serviceClient.from("post_likes").select("user_id").eq("post_id", params.id),
       commentIds.length > 0
-        ? serviceClient.from("comment_likes").select("comment_id").eq("user_id", userId).in("comment_id", commentIds)
-        : Promise.resolve({ data: [] }),
+        ? serviceClient.from("comment_likes").select("comment_id, user_id").in("comment_id", commentIds)
+        : Promise.resolve({ data: [] as any[] }),
     ]);
 
-    userLikedPostIds = new Set((postLikesRes.data ?? []).map((l: any) => l.post_id));
-    userLikedCommentIds = new Set((commentLikesRes.data ?? []).map((l: any) => l.comment_id));
+    postLikeCount = (postLikesAll.data ?? []).length;
+    userLikedPost = userId ? (postLikesAll.data ?? []).some((l: any) => l.user_id === userId) : false;
+
+    for (const l of commentLikesAll.data ?? []) {
+      commentLikeCountMap.set(l.comment_id, (commentLikeCountMap.get(l.comment_id) ?? 0) + 1);
+    }
+    if (userId) {
+      userLikedCommentIds = new Set(
+        (commentLikesAll.data ?? []).filter((l: any) => l.user_id === userId).map((l: any) => l.comment_id)
+      );
+    }
+  } catch {
+    // Migration not yet applied — likes not available yet
   }
 
   return NextResponse.json({
@@ -80,8 +99,8 @@ export async function GET(
       tags: (post as any).tags ?? [],
       author_nick: (post as any).profiles?.nick ?? "użytkownik",
       author_avatar: (post as any).profiles?.avatar_url ?? null,
-      like_count: (post as any).post_likes?.[0]?.count ?? 0,
-      user_liked: userLikedPostIds.has((post as any).id),
+      like_count: postLikeCount,
+      user_liked: userLikedPost,
     },
     comments: (comments ?? []).map((c: any) => ({
       id: c.id,
@@ -90,7 +109,7 @@ export async function GET(
       parent_id: c.parent_id ?? null,
       author_nick: c.profiles?.nick ?? "użytkownik",
       author_avatar: c.profiles?.avatar_url ?? null,
-      like_count: c.comment_likes?.[0]?.count ?? 0,
+      like_count: commentLikeCountMap.get(c.id) ?? 0,
       user_liked: userLikedCommentIds.has(c.id),
     })),
   });

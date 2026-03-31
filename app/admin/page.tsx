@@ -2,7 +2,20 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { useSupabase } from "@/components/SupabaseProvider";
+
+const AVATARS = [
+  "/profile-avatars/avatar_black_strat.png",
+  "/profile-avatars/avatar_sunburst_strat.png",
+  "/profile-avatars/avatar_butterscotch_tele.png",
+  "/profile-avatars/avatar_goldtop_lespaul.png",
+  "/profile-avatars/avatar_red_prs.png",
+  "/profile-avatars/avatar_black_ibanezsuperstrat.png",
+  "/profile-avatars/avatar_red_jazzbass.png",
+  "/profile-avatars/avatar_sunburst_jazbass.png",
+  "/profile-avatars/avatar_black_ibanezbass.png",
+];
 
 // ─── Types ────────────────────────────────────────────────
 interface Post { id: string; title: string; content: string; author_nick: string; created_at: string; status: string; }
@@ -29,6 +42,22 @@ function formatDt(dt: string | null) {
   return new Date(dt).toLocaleString("pl-PL", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
+function formatSchedule(dt: string | null) {
+  if (!dt) return "—";
+  const d = new Date(dt);
+  if (d <= new Date()) return "Gotowy — czeka na cron";
+  return formatDt(dt);
+}
+
+/** Oblicza kiedy odpali się następny cron (12:00 UTC każdego dnia) */
+function nextCronTime() {
+  const now = new Date();
+  const next = new Date(now);
+  next.setUTCHours(12, 0, 0, 0);
+  if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+  return next.toLocaleString("pl-PL", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
 // ─── BotCard ──────────────────────────────────────────────
 function BotCard({ bot, token, onRefresh, posts }: {
   bot: Bot; token: string; onRefresh: () => void;
@@ -42,10 +71,12 @@ function BotCard({ bot, token, onRefresh, posts }: {
       reply: { enabled: true, min_delay_minutes: 60, max_delay_minutes: 1440, reply_probability: 0.35 },
     },
   });
+  const [avatarUrl, setAvatarUrl] = useState(bot.avatar_url ?? AVATARS[0]);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
   const [log, setLog] = useState<{ id: string; action_type: string; content: string; created_at: string }[]>([]);
   const [showLog, setShowLog] = useState(false);
+  const [topicsRaw, setTopicsRaw] = useState((bot.bot_config?.topics ?? []).join(", "));
   const [manualType, setManualType] = useState<"post" | "comment">("post");
   const [manualTitle, setManualTitle] = useState("");
   const [manualContent, setManualContent] = useState("");
@@ -58,7 +89,7 @@ function BotCard({ bot, token, onRefresh, posts }: {
     const res = await fetch(`/api/admin/bots/${bot.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ bot_config: cfg }),
+      body: JSON.stringify({ bot_config: cfg, avatar_url: avatarUrl }),
     });
     setSaving(false);
     setSaveMsg(res.ok ? "✓ Zapisano" : "✗ Błąd");
@@ -72,7 +103,7 @@ function BotCard({ bot, token, onRefresh, posts }: {
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ [field]: new Date(Date.now() - 1000).toISOString() }),
     });
-    setSaveMsg("Ustawiono — bot wykona akcję przy następnym cronie (max 15 min)");
+    setSaveMsg(`Ustawiono — bot wykona akcję przy następnym cronie (${nextCronTime()})`);
     setTimeout(() => setSaveMsg(""), 4000);
   }
 
@@ -111,9 +142,9 @@ function BotCard({ bot, token, onRefresh, posts }: {
       {/* Header bota */}
       <div className="p-4 flex items-center justify-between" style={{ background: "rgba(12,12,12,0.85)" }}>
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
-            style={{ background: isActive ? "rgba(184,92,56,0.3)" : "rgba(255,255,255,0.08)" }}>
-            {bot.nick[0].toUpperCase()}
+          <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0"
+            style={{ border: isActive ? "2px solid rgba(184,92,56,0.5)" : "2px solid rgba(255,255,255,0.1)" }}>
+            <Image src={avatarUrl} alt={bot.nick} width={32} height={32} className="object-cover w-full h-full" />
           </div>
           <div>
             <span className="text-white font-semibold text-sm">{bot.nick}</span>
@@ -154,8 +185,8 @@ function BotCard({ bot, token, onRefresh, posts }: {
       {/* Skrót — daty */}
       {!expanded && (
         <div className="px-4 pb-3 flex gap-4 text-xs text-white/30" style={{ background: "rgba(12,12,12,0.6)" }}>
-          <span>Następny post: <span className="text-white/50">{formatDt(bot.next_post_at)}</span></span>
-          <span>Następna odpowiedź: <span className="text-white/50">{formatDt(bot.next_reply_at)}</span></span>
+          <span>Następny post: <span className={new Date(bot.next_post_at ?? 0) <= new Date() ? "text-[#D07A50]/70" : "text-white/50"}>{formatSchedule(bot.next_post_at)}</span></span>
+          <span>Następna odpowiedź: <span className={new Date(bot.next_reply_at ?? 0) <= new Date() ? "text-[#D07A50]/70" : "text-white/50"}>{formatSchedule(bot.next_reply_at)}</span></span>
         </div>
       )}
 
@@ -200,6 +231,38 @@ function BotCard({ bot, token, onRefresh, posts }: {
             </button>
           </div>
 
+          {/* Avatar picker */}
+          <div>
+            <label className="text-white/40 text-xs uppercase tracking-wider block mb-2">Avatar bota</label>
+            <div className="grid grid-cols-9 gap-2">
+              {AVATARS.map((src) => {
+                const selected = avatarUrl === src;
+                return (
+                  <button
+                    key={src}
+                    type="button"
+                    onClick={() => setAvatarUrl(src)}
+                    className="relative rounded-lg overflow-hidden transition-all hover:scale-[1.08]"
+                    style={{
+                      aspectRatio: "1",
+                      border: selected ? "2px solid #B85C38" : "2px solid rgba(255,255,255,0.08)",
+                      boxShadow: selected ? "0 0 0 2px rgba(184,92,56,0.3)" : "none",
+                    }}
+                  >
+                    <Image src={src} alt="Avatar" fill className="object-cover" sizes="48px" />
+                    {selected && (
+                      <div className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(184,92,56,0.25)" }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="20 6 9 17 4 12"/>
+                        </svg>
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Persona */}
           <div>
             <label className="text-white/40 text-xs uppercase tracking-wider block mb-1.5">Opis persony (wewnętrzny)</label>
@@ -213,8 +276,9 @@ function BotCard({ bot, token, onRefresh, posts }: {
           {/* Tematy */}
           <div>
             <label className="text-white/40 text-xs uppercase tracking-wider block mb-1.5">Tematy (oddziel przecinkiem)</label>
-            <input type="text" value={cfg.topics.join(", ")}
-              onChange={(e) => setCfg({ ...cfg, topics: e.target.value.split(",").map((t) => t.trim()).filter(Boolean) })}
+            <input type="text" value={topicsRaw}
+              onChange={(e) => setTopicsRaw(e.target.value)}
+              onBlur={(e) => setCfg({ ...cfg, topics: e.target.value.split(",").map((t) => t.trim()).filter(Boolean) })}
               placeholder="np. blues, Fender Telecaster, vintage gitary"
               className="w-full text-white text-sm rounded-xl px-3 py-2.5 outline-none border border-white/10 focus:border-[#B85C38]/50 transition-colors"
               style={{ background: "rgba(0,0,0,0.5)", fontFamily: "var(--font-inter), sans-serif" }} />
@@ -256,10 +320,10 @@ function BotCard({ bot, token, onRefresh, posts }: {
               ))}
             </div>
             <div className="mt-3 flex items-center justify-between">
-              <span className="text-white/30 text-xs">Następny post: {formatDt(bot.next_post_at)}</span>
+              <span className={`text-xs ${new Date(bot.next_post_at ?? 0) <= new Date() ? "text-[#D07A50]/70" : "text-white/30"}`}>Następny post: {formatSchedule(bot.next_post_at)}</span>
               <button onClick={() => forceRunNow("next_post_at")}
                 className="text-xs text-[#B85C38] hover:text-[#D07A50] transition-colors" style={{ background: "transparent" }}>
-                Uruchom teraz →
+                Napisz post przy następnym cronie →
               </button>
             </div>
           </div>
@@ -295,10 +359,10 @@ function BotCard({ bot, token, onRefresh, posts }: {
               ))}
             </div>
             <div className="mt-3 flex items-center justify-between">
-              <span className="text-white/30 text-xs">Następna odpowiedź: {formatDt(bot.next_reply_at)}</span>
+              <span className={`text-xs ${new Date(bot.next_reply_at ?? 0) <= new Date() ? "text-[#D07A50]/70" : "text-white/30"}`}>Następna odpowiedź: {formatSchedule(bot.next_reply_at)}</span>
               <button onClick={() => forceRunNow("next_reply_at")}
                 className="text-xs text-[#B85C38] hover:text-[#D07A50] transition-colors" style={{ background: "transparent" }}>
-                Sprawdź teraz →
+                Skomentuj post przy następnym cronie →
               </button>
             </div>
           </div>

@@ -73,10 +73,12 @@ export default function SpolecznoscPage() {
 
   // Search & filter state
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchPosts, setSearchPosts] = useState(true);
   const [searchComments, setSearchComments] = useState(false);
   const [filterTags, setFilterTags] = useState<string[]>([]);
+  const [showTagFilter, setShowTagFilter] = useState(false);
   const [showAllTags, setShowAllTags] = useState(false);
-  const [token, setToken] = useState<string | null>(null);
+  const [checkboxError, setCheckboxError] = useState(false);
 
   function checkUrl(value: string) {
     if (!isAdmin && /https?:\/\/[^\s]+|www\.[^\s]+/i.test(value)) {
@@ -89,7 +91,6 @@ export default function SpolecznoscPage() {
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) { router.replace("/auth/login"); return; }
-      setToken(session.access_token);
       const res = await fetch("/api/auth/create-profile", {
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
@@ -99,15 +100,19 @@ export default function SpolecznoscPage() {
     fetchPosts();
   }, []);
 
-  async function fetchPosts(tags?: string[], search?: string, inclComments?: boolean) {
+  async function fetchPosts(tags?: string[], search?: string, inclPosts?: boolean, inclComments?: boolean) {
     setLoading(true);
     const params = new URLSearchParams();
     const t = tags ?? filterTags;
-    const s = search ?? searchQuery;
-    const sc = inclComments ?? searchComments;
+    const s = search !== undefined ? search : searchQuery;
+    const sp = inclPosts !== undefined ? inclPosts : searchPosts;
+    const sc = inclComments !== undefined ? inclComments : searchComments;
     if (t.length > 0) params.set("tags", t.join(","));
-    if (s.trim()) params.set("search", s.trim());
-    if (sc) params.set("search_comments", "true");
+    if (s.trim()) {
+      params.set("search", s.trim());
+      if (sc) params.set("search_comments", "true");
+      if (!sp) params.set("posts_search", "false");
+    }
 
     const { data: { session } } = await supabase.auth.getSession();
     const headers: Record<string, string> = {};
@@ -129,14 +134,39 @@ export default function SpolecznoscPage() {
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
+    if (!searchPosts && !searchComments) {
+      setCheckboxError(true);
+      return;
+    }
+    setCheckboxError(false);
     fetchPosts();
+  }
+
+  function handleSearchPostsToggle(checked: boolean) {
+    if (!checked && !searchComments) {
+      setCheckboxError(true);
+      return;
+    }
+    setCheckboxError(false);
+    setSearchPosts(checked);
+  }
+
+  function handleSearchCommentsToggle(checked: boolean) {
+    if (!checked && !searchPosts) {
+      setCheckboxError(true);
+      return;
+    }
+    setCheckboxError(false);
+    setSearchComments(checked);
   }
 
   function clearFilters() {
     setFilterTags([]);
     setSearchQuery("");
+    setSearchPosts(true);
     setSearchComments(false);
-    fetchPosts([], "");
+    setCheckboxError(false);
+    fetchPosts([], "", true, false);
   }
 
   function toggleFormTag(tag: string) {
@@ -149,6 +179,13 @@ export default function SpolecznoscPage() {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) return;
 
+    // Optimistic update
+    setPosts((prev) =>
+      prev.map((p) =>
+        p.id === postId ? { ...p, like_count: p.like_count + 1, user_liked: true } : p
+      )
+    );
+
     const res = await fetch("/api/community/likes", {
       method: "POST",
       headers: {
@@ -158,10 +195,11 @@ export default function SpolecznoscPage() {
       body: JSON.stringify({ target_type: "post", target_id: postId }),
     });
 
-    if (res.ok) {
+    if (!res.ok) {
+      // Revert on failure
       setPosts((prev) =>
         prev.map((p) =>
-          p.id === postId ? { ...p, like_count: p.like_count + 1, user_liked: true } : p
+          p.id === postId ? { ...p, like_count: p.like_count - 1, user_liked: false } : p
         )
       );
     }
@@ -234,7 +272,6 @@ export default function SpolecznoscPage() {
   }
 
   const hasActiveFilters = filterTags.length > 0 || searchQuery.trim() !== "";
-  const visibleTags = showAllTags ? ALL_TAGS : ALL_TAGS.slice(0, 8);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -290,26 +327,28 @@ export default function SpolecznoscPage() {
               Szukaj
             </button>
           </form>
-          <div className="flex items-center gap-4 mt-2">
-            <label className="flex items-center gap-2 text-xs text-white/40 cursor-pointer select-none">
+          <div className="flex items-center gap-4 mt-2 flex-wrap">
+            <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
               <input
                 type="checkbox"
-                checked={!searchComments}
-                onChange={() => {}}
+                checked={searchPosts}
+                onChange={(e) => handleSearchPostsToggle(e.target.checked)}
                 className="accent-[#B85C38] w-3.5 h-3.5"
-                disabled
               />
               <span className="text-white/50">Szukaj wśród postów</span>
             </label>
-            <label className="flex items-center gap-2 text-xs text-white/40 cursor-pointer select-none">
+            <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={searchComments}
-                onChange={(e) => setSearchComments(e.target.checked)}
+                onChange={(e) => handleSearchCommentsToggle(e.target.checked)}
                 className="accent-[#B85C38] w-3.5 h-3.5"
               />
-              <span>Szukaj wśród komentarzy</span>
+              <span className="text-white/40">Szukaj wśród komentarzy</span>
             </label>
+            {checkboxError && (
+              <span className="text-red-400 text-xs">jedna z opcji musi być zaznaczona</span>
+            )}
             {hasActiveFilters && (
               <button
                 onClick={clearFilters}
@@ -322,37 +361,63 @@ export default function SpolecznoscPage() {
           </div>
         </div>
 
-        {/* Tag filter */}
+        {/* Tag filter — ukryty za przyciskiem */}
         <div className="mb-6">
-          <div className="flex flex-wrap gap-2">
-            {visibleTags.map((tag) => (
-              <button
-                key={tag}
-                onClick={() => handleTagFilter(tag)}
-                className="px-3 py-1.5 rounded-lg text-xs transition-all"
-                style={{
-                  background: filterTags.includes(tag)
-                    ? "rgba(184,92,56,0.3)"
-                    : "rgba(255,255,255,0.05)",
-                  border: filterTags.includes(tag)
-                    ? "1px solid rgba(184,92,56,0.6)"
-                    : "1px solid rgba(255,255,255,0.1)",
-                  color: filterTags.includes(tag) ? "#D07A50" : "rgba(255,255,255,0.5)",
-                }}
-              >
-                {tag}
-              </button>
-            ))}
-            {ALL_TAGS.length > 8 && (
-              <button
-                onClick={() => setShowAllTags(!showAllTags)}
-                className="px-3 py-1.5 rounded-lg text-xs text-white/30 hover:text-white/50 transition-colors"
-                style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.08)" }}
-              >
-                {showAllTags ? "Mniej tagów" : `+${ALL_TAGS.length - 8} więcej`}
-              </button>
+          <button
+            onClick={() => setShowTagFilter(!showTagFilter)}
+            className="flex items-center gap-2 text-xs text-white/40 hover:text-white/60 transition-colors mb-3"
+            style={{ background: "transparent" }}
+          >
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              className={`transition-transform ${showTagFilter ? "rotate-180" : ""}`}
+            >
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+            {showTagFilter ? "Ukryj wyszukiwanie po tagach" : "Pokaż wyszukiwanie po tagach"}
+            {filterTags.length > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 rounded text-xs" style={{ background: "rgba(184,92,56,0.3)", color: "#D07A50" }}>
+                {filterTags.length}
+              </span>
             )}
-          </div>
+          </button>
+
+          {showTagFilter && (
+            <div className="flex flex-wrap gap-2">
+              {(showAllTags ? ALL_TAGS : ALL_TAGS.slice(0, 10)).map((tag) => (
+                <button
+                  key={tag}
+                  onClick={() => handleTagFilter(tag)}
+                  className="px-3 py-1.5 rounded-lg text-xs transition-all"
+                  style={{
+                    background: filterTags.includes(tag)
+                      ? "rgba(184,92,56,0.3)"
+                      : "rgba(255,255,255,0.05)",
+                    border: filterTags.includes(tag)
+                      ? "1px solid rgba(184,92,56,0.6)"
+                      : "1px solid rgba(255,255,255,0.1)",
+                    color: filterTags.includes(tag) ? "#D07A50" : "rgba(255,255,255,0.5)",
+                  }}
+                >
+                  {tag}
+                </button>
+              ))}
+              {ALL_TAGS.length > 10 && (
+                <button
+                  onClick={() => setShowAllTags(!showAllTags)}
+                  className="px-3 py-1.5 rounded-lg text-xs text-white/30 hover:text-white/50 transition-colors"
+                  style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.08)" }}
+                >
+                  {showAllTags ? "Mniej tagów" : `+${ALL_TAGS.length - 10} więcej`}
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Form nowego posta */}
